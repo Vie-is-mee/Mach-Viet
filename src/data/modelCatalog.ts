@@ -17,6 +17,18 @@ export interface SampleModelMeta {
   cautionNotice: string;
 }
 
+export interface SessionModelRecord {
+  id: string;
+  file: File;
+  fileName: string;
+  fileSizeBytes: number;
+  assignedGarmentId: string;
+  assignedGarmentLabel: string;
+  matchedMeta: SampleModelMeta | null;
+  uploadedAt: string;
+  dimensions?: { width: number; height: number; depth: number };
+}
+
 export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
   'tu-than-color.glb': {
     filename: 'tu-than-color.glb',
@@ -55,6 +67,14 @@ export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
     cautionNotice: 'Mô hình minh họa 3D, chưa được thẩm định phục dựng bảo tàng.',
   },
 };
+
+export const GARMENTS_ASSIGNABLE_OPTIONS = [
+  { id: 'ao-tu-than', label: 'Áo Tứ Thân (tu-than-color.glb)' },
+  { id: 'ao-dai-hien-dai', label: 'Áo Dài Hiện Đại (ao-dai-blue.glb)' },
+  { id: 'ao-nhat-binh', label: 'Áo Nhật Bình (nhat-binh.glb)' },
+  { id: 'ao-ngu-than', label: 'Áo Ngũ Thân (chưa có tệp mẫu riêng)' },
+  { id: 'custom_other', label: 'Dòng y phục khác / Tự do' },
+];
 
 /**
  * Trạng thái mô hình cho từng dòng áo trong catalog
@@ -113,3 +133,24 @@ export function matchUploadedModelMeta(fileName: string): SampleModelMeta | null
   }
   return null;
 }
+
+/**
+ * Tự động nhận diện dòng y phục mặc định dựa theo tên tệp tải lên
+ */
+export function detectGarmentFromFilename(fileName: string): { garmentId: string; label: string } {
+  const norm = fileName.toLowerCase().replace(/[-_]/g, ' ');
+  if (norm.includes('tu than') || norm.includes('tu-than') || norm.includes('tứ thân')) {
+    return { garmentId: 'ao-tu-than', label: 'Áo Tứ Thân' };
+  }
+  if (norm.includes('ao dai') || norm.includes('ao-dai') || norm.includes('áo dài')) {
+    return { garmentId: 'ao-dai-hien-dai', label: 'Áo Dài' };
+  }
+  if (norm.includes('nhat binh') || norm.includes('nhat-binh') || norm.includes('nhật bình')) {
+    return { garmentId: 'ao-nhat-binh', label: 'Áo Nhật Bình' };
+  }
+  if (norm.includes('ngu than') || norm.includes('ngu-than') || norm.includes('ngũ thân')) {
+    return { garmentId: 'ao-ngu-than', label: 'Áo Ngũ Thân' };
+  }
+  return { garmentId: 'custom_other', label: 'Dòng y phục khác / Tự do' };
+}
+

@@ -131,7 +131,19 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   // SMART GARMENT SWITCH: Evaluates compatibility, retains valid layers, auto-swaps invalid ones with report
   const handleSelectGarmentWithCompatibility = (nextGarmentId: string) => {
-    if (nextGarmentId === selectedGarmentId) return;
+    // Normalize if category identifier or alias is passed
+    let resolvedGarmentId = nextGarmentId;
+    if (resolvedGarmentId === 'ao-ngu-than' || resolvedGarmentId === 'ao_ngu_than') {
+      resolvedGarmentId = 'ngu-than-tay-chen';
+    } else if (resolvedGarmentId === 'ao_dai') {
+      resolvedGarmentId = 'ao-dai-hien-dai';
+    } else if (resolvedGarmentId === 'ao_tu_than') {
+      resolvedGarmentId = 'ao-tu-than';
+    } else if (resolvedGarmentId === 'ao_nhat_binh') {
+      resolvedGarmentId = 'ao-nhat-binh';
+    }
+
+    if (resolvedGarmentId === selectedGarmentId) return;
 
     // Snapshot for Undo
     const snapshot = getCurrentSnapshot();
@@ -139,7 +151,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
     const transition = resolveGarmentLayerTransition(
       selectedGarmentId,
-      nextGarmentId,
+      resolvedGarmentId,
       snapshot
     );
 
@@ -153,7 +165,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     if (transition.hasAutoChanged) {
       setAutoTransitionAlert({
         fromGarmentName: currentGarment.name,
-        toGarmentName: GARMENT_COMPATIBILITY_RULES[nextGarmentId]?.garmentName || nextGarmentId,
+        toGarmentName: GARMENT_COMPATIBILITY_RULES[resolvedGarmentId]?.garmentName || resolvedGarmentId,
         changedItems: transition.changedItems,
         retainedItems: transition.retainedItems,
         timestamp: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
