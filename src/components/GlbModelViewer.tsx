@@ -24,6 +24,10 @@ import {
   CheckCircle2,
   Layers,
   Sparkles,
+  Fan,
+  Sliders,
+  Grid,
+  EyeOff,
 } from 'lucide-react';
 import {
   matchUploadedModelMeta,
@@ -31,7 +35,6 @@ import {
   detectGarmentFromFilename,
   SampleModelMeta,
   SessionModelRecord,
-  SAMPLE_MODELS_REGISTRY,
   GARMENTS_ASSIGNABLE_OPTIONS,
 } from '../data/modelCatalog';
 
@@ -48,6 +51,17 @@ type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit
 
+// Phụ kiện cầm tay trong danh mục
+export interface AccessoryModelRecord {
+  id: string;
+  file: File;
+  fileName: string;
+  fileSizeBytes: number;
+  matchedMeta: SampleModelMeta | null;
+  uploadedAt: string;
+  dimensions?: { width: number; height: number; depth: number };
+}
+
 export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   currentGarmentId,
   currentGarmentName,
@@ -59,21 +73,31 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const additionalFileInputRef = useRef<HTMLInputElement>(null);
+  const accessoryFileInputRef = useRef<HTMLInputElement>(null);
 
   // Three.js instances
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const currentModelRef = useRef<THREE.Group | null>(null);
+  const gridHelperRef = useRef<THREE.GridHelper | null>(null);
+
+  // Separate Object Groups for Garment and Accessory
+  const garmentGroupRef = useRef<THREE.Group | null>(null);
+  const accessoryPivotRef = useRef<THREE.Group | null>(null);
+  const accessoryInnerModelRef = useRef<THREE.Group | null>(null);
+
   const animationFrameIdRef = useRef<number | null>(null);
   const initialViewRef = useRef<{ cameraPos: THREE.Vector3; target: THREE.Vector3 } | null>(null);
 
   // Session & Loading Control Refs (Preventing duplicate/infinite load loops)
-  const currentLoadedIdRef = useRef<string | null>(null);
-  const loadGenerationRef = useRef<number>(0);
+  const currentLoadedGarmentIdRef = useRef<string | null>(null);
+  const garmentLoadGenRef = useRef<number>(0);
 
-  // Stabilize external callbacks to prevent re-triggering effects on parent re-renders
+  const currentLoadedAccessoryIdRef = useRef<string | null>(null);
+  const accessoryLoadGenRef = useRef<number>(0);
+
+  // Stabilize external callbacks
   const onSyncGarmentRef = useRef(onSyncGarment);
   onSyncGarmentRef.current = onSyncGarment;
   const onModelLoadedRef = useRef(onModelLoaded);
@@ -83,13 +107,40 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   const onModelClearedRef = useRef(onModelCleared);
   onModelClearedRef.current = onModelCleared;
 
-  // Multi-model session state
+  // Garment models session state
   const [loadedModels, setLoadedModels] = useState<SessionModelRecord[]>([]);
   const loadedModelsRef = useRef<SessionModelRecord[]>([]);
   loadedModelsRef.current = loadedModels;
-
   const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [retryTrigger, setRetryTrigger] = useState<number>(0);
+
+  // Accessory model state (Quạt cầm tay riêng biệt)
+  const [accessoryModel, setAccessoryModel] = useState<AccessoryModelRecord | null>(null);
+  const accessoryModelRef = useRef<AccessoryModelRecord | null>(null);
+  accessoryModelRef.current = accessoryModel;
+  const [isAccessoryLoading, setIsAccessoryLoading] = useState<boolean>(false);
+  const [accessoryLoadingProgress, setAccessoryLoadingProgress] = useState<number>(0);
+  const [accessoryError, setAccessoryError] = useState<string | null>(null);
+
+  // Accessory fine-tuning transform settings
+  // Default suggested position calculated from garment bounding box
+  const [suggestedAccessoryPos, setSuggestedAccessoryPos] = useState<{ x: number; y: number; z: number }>({
+    x: 0.52,
+    y: -0.15,
+    z: 0.18,
+  });
+  const [accessoryOffsetX, setAccessoryOffsetX] = useState<number>(0.52);
+  const [accessoryOffsetY, setAccessoryOffsetY] = useState<number>(-0.15);
+  const [accessoryOffsetZ, setAccessoryOffsetZ] = useState<number>(0.18);
+  const [accessoryRotY, setAccessoryRotY] = useState<number>(-25); // xoay ngang quanh trục đứng Y (độ)
+  const [accessoryRotZ, setAccessoryRotZ] = useState<number>(15);  // nghiêng quạt quanh trục Z (độ)
+  const [accessoryRotX, setAccessoryRotX] = useState<number>(0);   // ngửa/úp quạt quanh trục X (độ)
+  const [accessoryScale, setAccessoryScale] = useState<number>(1.0);
+  const [isAccessoryVisible, setIsAccessoryVisible] = useState<boolean>(true);
+  const [showAccessoryControls, setShowAccessoryControls] = useState<boolean>(false);
+
+  // Grid visibility toggle (Ẩn mặc định theo yêu cầu người dùng để không rối tà áo)
+  const [showGrid, setShowGrid] = useState<boolean>(false);
 
   // Viewer state
   const [viewerStatus, setViewerStatus] = useState<ViewerStatus>('idle');
@@ -98,48 +149,163 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   const [isAutoRotating, setIsAutoRotating] = useState<boolean>(false);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
 
-  // The record currently active
+  // Active garment record
   const activeRecord = loadedModels.find((m) => m.id === activeModelId) || null;
   const modelMeta = activeRecord ? activeRecord.matchedMeta : null;
-
   const availability = getGarmentModelAvailability(currentGarmentId);
 
-  // Dispose all meshes, geometries, and materials safely to prevent RAM leakage
-  const disposeCurrentModel = useCallback(() => {
-    if (currentModelRef.current && sceneRef.current) {
-      currentModelRef.current.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          if (mesh.geometry) {
-            mesh.geometry.dispose();
-          }
-          if (mesh.material) {
-            if (Array.isArray(mesh.material)) {
-              mesh.material.forEach((mat) => {
-                mat.dispose();
-                for (const key of Object.keys(mat)) {
-                  const val = (mat as unknown as Record<string, unknown>)[key];
-                  if (val && typeof val === 'object' && val !== null && 'isTexture' in val) {
-                    (val as THREE.Texture).dispose();
-                  }
-                }
-              });
-            } else {
-              mesh.material.dispose();
-              for (const key of Object.keys(mesh.material)) {
-                const val = (mesh.material as unknown as Record<string, unknown>)[key];
+  // Helper: calculate smart default accessory position near the right sleeve end
+  const computeRightSleeveSuggestedPos = useCallback((garmentGroup: THREE.Group) => {
+    const box = new THREE.Box3().setFromObject(garmentGroup);
+    const size = box.getSize(new THREE.Vector3());
+    const maxCorner = box.max;
+    const minCorner = box.min;
+
+    // Right sleeve tip is near max.x (or if model is oriented differently, at outer horizontal extreme)
+    // Tứ thân / Áo dài thường có ống tay rủ ở khoảng 40%-55% chiều cao từ đỉnh áo xuống
+    const suggestedX = Number((maxCorner.x * 0.92 + 0.08).toFixed(2));
+    const suggestedY = Number((minCorner.y + size.y * 0.45).toFixed(2));
+    const suggestedZ = Number((maxCorner.z * 0.5 + 0.12).toFixed(2));
+
+    return {
+      x: Math.max(suggestedX, 0.42),
+      y: suggestedY,
+      z: Math.max(suggestedZ, 0.12),
+    };
+  }, []);
+
+  // Dispose all meshes, geometries, and materials safely
+  const disposeGroup = useCallback((group: THREE.Group | null) => {
+    if (!group) return;
+    group.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.material) {
+          if (Array.isArray(mesh.material)) {
+            mesh.material.forEach((mat) => {
+              mat.dispose();
+              for (const key of Object.keys(mat)) {
+                const val = (mat as unknown as Record<string, unknown>)[key];
                 if (val && typeof val === 'object' && val !== null && 'isTexture' in val) {
                   (val as THREE.Texture).dispose();
                 }
               }
+            });
+          } else {
+            mesh.material.dispose();
+            for (const key of Object.keys(mesh.material)) {
+              const val = (mesh.material as unknown as Record<string, unknown>)[key];
+              if (val && typeof val === 'object' && val !== null && 'isTexture' in val) {
+                (val as THREE.Texture).dispose();
+              }
             }
           }
         }
-      });
-      sceneRef.current.remove(currentModelRef.current);
-      currentModelRef.current = null;
-    }
+      }
+    });
   }, []);
+
+  const disposeCurrentGarment = useCallback(() => {
+    if (garmentGroupRef.current && sceneRef.current) {
+      disposeGroup(garmentGroupRef.current);
+      sceneRef.current.remove(garmentGroupRef.current);
+      garmentGroupRef.current = null;
+    }
+  }, [disposeGroup]);
+
+  const disposeCurrentAccessory = useCallback(() => {
+    if (accessoryPivotRef.current && sceneRef.current) {
+      disposeGroup(accessoryPivotRef.current);
+      sceneRef.current.remove(accessoryPivotRef.current);
+      accessoryPivotRef.current = null;
+      accessoryInnerModelRef.current = null;
+    }
+  }, [disposeGroup]);
+
+  // Recalculate camera framing to encompass both garment and accessory comfortably
+  const updateCameraFraming = useCallback(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!scene || !camera || !controls) return;
+
+    const combinedBox = new THREE.Box3();
+    let hasObjects = false;
+
+    if (garmentGroupRef.current) {
+      combinedBox.expandByObject(garmentGroupRef.current);
+      hasObjects = true;
+    }
+
+    if (accessoryPivotRef.current && isAccessoryVisible) {
+      combinedBox.expandByObject(accessoryPivotRef.current);
+      hasObjects = true;
+    }
+
+    if (!hasObjects) return;
+
+    const center = combinedBox.getCenter(new THREE.Vector3());
+    const size = combinedBox.getSize(new THREE.Vector3());
+    const sphere = combinedBox.getBoundingSphere(new THREE.Sphere());
+    const radius = Math.max(sphere.radius, size.length() / 2, 0.6);
+
+    const fov = camera.fov * (Math.PI / 180);
+    let distance = radius / Math.sin(fov / 2);
+    distance = Math.max(distance * 1.25, 1.3);
+
+    // Frame camera with subtle eye-level elevate
+    camera.position.set(center.x, center.y + radius * 0.12, center.z + distance);
+    camera.lookAt(center.x, center.y, center.z);
+    camera.near = Math.max(distance / 50, 0.05);
+    camera.far = Math.max(distance * 50, 100);
+    camera.updateProjectionMatrix();
+
+    controls.target.copy(center);
+    controls.minDistance = Math.max(radius * 0.25, 0.2);
+    controls.maxDistance = distance * 5;
+    controls.update();
+
+    initialViewRef.current = {
+      cameraPos: camera.position.clone(),
+      target: controls.target.clone(),
+    };
+  }, [isAccessoryVisible]);
+
+  // Update accessory position, rotation, scale, visibility in realtime WITHOUT loading again
+  useEffect(() => {
+    if (accessoryPivotRef.current) {
+      accessoryPivotRef.current.position.set(accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ);
+      accessoryPivotRef.current.scale.set(accessoryScale, accessoryScale, accessoryScale);
+      accessoryPivotRef.current.visible = isAccessoryVisible;
+    }
+    if (accessoryInnerModelRef.current) {
+      accessoryInnerModelRef.current.rotation.x = THREE.MathUtils.degToRad(accessoryRotX);
+      accessoryInnerModelRef.current.rotation.y = THREE.MathUtils.degToRad(accessoryRotY);
+      accessoryInnerModelRef.current.rotation.z = THREE.MathUtils.degToRad(accessoryRotZ);
+    }
+  }, [accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ, accessoryRotX, accessoryRotY, accessoryRotZ, accessoryScale, isAccessoryVisible]);
+
+  // Update GridHelper visibility
+  useEffect(() => {
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = showGrid;
+    }
+  }, [showGrid]);
+
+  // Reset accessory to suggested smart position
+  const handleResetAccessoryToSuggested = () => {
+    setAccessoryOffsetX(suggestedAccessoryPos.x);
+    setAccessoryOffsetY(suggestedAccessoryPos.y);
+    setAccessoryOffsetZ(suggestedAccessoryPos.z);
+    setAccessoryRotX(0);
+    setAccessoryRotY(-25);
+    setAccessoryRotZ(15);
+    setAccessoryScale(1.0);
+    setIsAccessoryVisible(true);
+  };
 
   // Initialize Three.js Scene, Camera, Renderer, Controls (Runs ONCE on mount)
   useEffect(() => {
@@ -159,87 +325,103 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     camera.position.set(0, 1.2, 3);
     cameraRef.current = camera;
 
-    // 3. WebGL Renderer with high color fidelity
+    // 3. WebGL Renderer with High DPI and Color Management
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
+      alpha: false,
       powerPreference: 'high-performance',
-      alpha: true,
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = 1.1;
     rendererRef.current = renderer;
 
-    while (container.firstChild) {
-      container.removeChild(container.firstChild);
-    }
-    container.appendChild(renderer.domElement);
+    container.replaceChildren(renderer.domElement);
 
-    // 4. OrbitControls with smooth damping
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
-    controls.maxPolarAngle = Math.PI * 0.95;
-    controls.minDistance = 0.3;
-    controls.maxDistance = 20;
-    controlsRef.current = controls;
-
-    // 5. Soft directional + ambient lighting so materials and textures are clearly visible
-    const ambientLight = new THREE.AmbientLight(0xfffaf0, 1.3);
+    // 4. Balanced 3-Point Studio Lighting Setup
+    const ambientLight = new THREE.AmbientLight(0xfffbf0, 1.4);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
-    keyLight.position.set(4, 8, 6);
-    scene.add(keyLight);
-
-    const fillLight = new THREE.DirectionalLight(0xf4ece1, 0.9);
-    fillLight.position.set(-4, 5, -4);
-    scene.add(fillLight);
-
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xdcd3c3, 0.6);
-    hemiLight.position.set(0, 10, 0);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xdcd6cd, 0.8);
+    hemiLight.position.set(0, 20, 0);
     scene.add(hemiLight);
 
-    // 6. Animation loop
+    const keyLight = new THREE.DirectionalLight(0xfffaed, 2.0);
+    keyLight.position.set(3, 5, 4);
+    scene.add(keyLight);
+
+    const fillLight = new THREE.DirectionalLight(0xedd9c0, 1.2);
+    fillLight.position.set(-3, 3, -2);
+    scene.add(fillLight);
+
+    const frontLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    frontLight.position.set(0, 1, 4);
+    scene.add(frontLight);
+
+    // Grid Helper (Ẩn mặc định)
+    const grid = new THREE.GridHelper(10, 20, 0xd4cdc5, 0xe5dfd7);
+    grid.position.y = -1.2;
+    grid.visible = false;
+    gridHelperRef.current = grid;
+    scene.add(grid);
+
+    // 5. OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.screenSpacePanning = true;
+    controls.maxPolarAngle = Math.PI * 0.95;
+    controls.minPolarAngle = 0.05;
+    controls.autoRotate = false;
+    controls.autoRotateSpeed = 2.0;
+    controlsRef.current = controls;
+
+    // 6. Animation / Render Loop
+    let isRunning = true;
     const animate = () => {
-      animationFrameIdRef.current = requestAnimationFrame(animate);
-
-      if (controlsRef.current) {
-        controlsRef.current.update();
-      }
-
+      if (!isRunning) return;
+      controls.update();
       renderer.render(scene, camera);
+      animationFrameIdRef.current = requestAnimationFrame(animate);
     };
     animate();
 
-    // 7. Resize Observer
-    const resizeObserver = new ResizeObserver((entries) => {
-      if (!entries || !entries[0]) return;
-      const { width: newWidth, height: newHeight } = entries[0].contentRect;
-      if (newWidth > 0 && newHeight > 0) {
-        camera.aspect = newWidth / newHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(newWidth, newHeight);
-      }
-    });
+    // 7. Responsive Resize Observer
+    const handleResize = () => {
+      if (!container || !camera || !renderer) return;
+      const newWidth = container.clientWidth;
+      const newHeight = container.clientHeight;
+      if (newWidth === 0 || newHeight === 0) return;
+
+      camera.aspect = newWidth / newHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(newWidth, newHeight);
+    };
+
+    const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
 
+    // Cleanup on unmount
     return () => {
+      isRunning = false;
       resizeObserver.disconnect();
-      if (animationFrameIdRef.current) {
+
+      if (animationFrameIdRef.current !== null) {
         cancelAnimationFrame(animationFrameIdRef.current);
       }
-      disposeCurrentModel();
-      currentLoadedIdRef.current = null;
+
       controls.dispose();
+      disposeCurrentGarment();
+      disposeCurrentAccessory();
       renderer.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
+
+      if (container && renderer.domElement) {
+        renderer.domElement.remove();
       }
     };
-  }, [disposeCurrentModel]);
+  }, [disposeCurrentGarment, disposeCurrentAccessory]);
 
   // Handle auto-rotation
   useEffect(() => {
@@ -249,21 +431,20 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     }
   }, [isAutoRotating]);
 
-  // PRIMARY EFFECT: Load active GLB model exactly ONCE when activeModelId changes
-  // Guarded by currentLoadedIdRef and loadGenerationRef to completely prevent infinite reload cycles
+  // ==========================================
+  // EFFECT 1: LOAD ACTIVE GARMENT MODEL
+  // ==========================================
   useEffect(() => {
-    // Case 1: No active model selected
     if (!activeModelId) {
-      if (currentLoadedIdRef.current !== null) {
-        disposeCurrentModel();
-        currentLoadedIdRef.current = null;
+      if (currentLoadedGarmentIdRef.current !== null) {
+        disposeCurrentGarment();
+        currentLoadedGarmentIdRef.current = null;
       }
-      setViewerStatus('idle');
+      setViewerStatus(accessoryModelRef.current ? 'ready' : 'idle');
       return;
     }
 
-    // Case 2: Model already decoded and active in Three.js scene (NO RELOAD)
-    if (currentLoadedIdRef.current === activeModelId && viewerStatus === 'ready') {
+    if (currentLoadedGarmentIdRef.current === activeModelId && viewerStatus === 'ready') {
       return;
     }
 
@@ -272,8 +453,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       return;
     }
 
-    // Advance generation counter to invalidate any previous or in-flight load request
-    const thisGeneration = ++loadGenerationRef.current;
+    const thisGeneration = ++garmentLoadGenRef.current;
 
     setErrorMessage(null);
     setViewerStatus('loading');
@@ -299,8 +479,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       return;
     }
 
-    // Dispose old model mesh before loading new one
-    disposeCurrentModel();
+    disposeCurrentGarment();
 
     const objectUrl = URL.createObjectURL(file);
     const loader = new GLTFLoader();
@@ -310,88 +489,64 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       (gltf) => {
         URL.revokeObjectURL(objectUrl);
 
-        // If a newer load has been triggered (or component unmounted), discard and cleanup
-        if (loadGenerationRef.current !== thisGeneration) {
-          gltf.scene.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              (child as THREE.Mesh).geometry?.dispose();
-            }
-          });
+        if (garmentLoadGenRef.current !== thisGeneration) {
+          disposeGroup(gltf.scene);
           return;
         }
 
         const scene = sceneRef.current;
-        const camera = cameraRef.current;
-        const controls = controlsRef.current;
-
-        if (!scene || !camera || !controls) {
+        if (!scene) {
           setViewerStatus('idle');
           return;
         }
 
         const model = gltf.scene;
-        currentModelRef.current = model;
+        garmentGroupRef.current = model;
 
         // 1. Calculate bounding box and center model at origin (0, 0, 0)
         const rawBox = new THREE.Box3().setFromObject(model);
         const center = rawBox.getCenter(new THREE.Vector3());
         const size = rawBox.getSize(new THREE.Vector3());
 
-        // Recenter model so its geometric center is strictly at (0, 0, 0)
+        // Recenter model so its geometric center is at (0, 0, 0)
         model.position.x -= center.x;
         model.position.y -= center.y;
         model.position.z -= center.z;
 
-        // Save calculated dimensions
+        // Position ground grid just below the model base
+        if (gridHelperRef.current) {
+          gridHelperRef.current.position.y = -(size.y / 2) - 0.02;
+        }
+
         const dimensions = {
           width: Number(size.x.toFixed(2)),
           height: Number(size.y.toFixed(2)),
           depth: Number(size.z.toFixed(2)),
         };
 
-        // 2. Re-compute centered bounding box and bounding sphere for exact camera distance
-        const centeredBox = new THREE.Box3().setFromObject(model);
-        const sphere = centeredBox.getBoundingSphere(new THREE.Sphere());
-        const radius = Math.max(sphere.radius, size.length() / 2, 0.5);
-
-        const fov = camera.fov * (Math.PI / 180);
-        let distance = radius / Math.sin(fov / 2);
-        distance = Math.max(distance * 1.25, 1.2);
-
-        camera.position.set(0, radius * 0.15, distance);
-        camera.lookAt(0, 0, 0);
-        camera.near = Math.max(distance / 50, 0.05);
-        camera.far = Math.max(distance * 50, 100);
-        camera.updateProjectionMatrix();
-
-        controls.target.set(0, 0, 0);
-        controls.minDistance = Math.max(radius * 0.25, 0.2);
-        controls.maxDistance = distance * 5;
-        controls.update();
-
-        // Save default camera viewpoint for reset button
-        initialViewRef.current = {
-          cameraPos: camera.position.clone(),
-          target: controls.target.clone(),
-        };
-
-        // 3. Add model to scene
+        // Add garment to scene
         scene.add(model);
 
-        // Mark model as safely loaded in scene
-        currentLoadedIdRef.current = targetRecord.id;
+        // 2. Compute smart suggested accessory position near right sleeve end based on real bounding box
+        const smartPos = computeRightSleeveSuggestedPos(model);
+        setSuggestedAccessoryPos(smartPos);
+        setAccessoryOffsetX(smartPos.x);
+        setAccessoryOffsetY(smartPos.y);
+        setAccessoryOffsetZ(smartPos.z);
+
+        currentLoadedGarmentIdRef.current = targetRecord.id;
         setViewerStatus('ready');
         setLoadingProgress(100);
 
-        // Update dimensions in loadedModels without triggering re-load
         setLoadedModels((prev) =>
           prev.map((m) => (m.id === targetRecord.id ? { ...m, dimensions } : m))
         );
 
+        updateCameraFraming();
         onModelLoadedRef.current?.(file.name, targetRecord.assignedGarmentId);
       },
       (progress) => {
-        if (loadGenerationRef.current !== thisGeneration) return;
+        if (garmentLoadGenRef.current !== thisGeneration) return;
         if (progress.total > 0) {
           const percent = Math.round((progress.loaded / progress.total) * 100);
           setLoadingProgress(percent);
@@ -399,20 +554,146 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       },
       (error) => {
         URL.revokeObjectURL(objectUrl);
-        if (loadGenerationRef.current !== thisGeneration) return;
-        console.error('Lỗi nạp mô hình GLB:', error);
+        if (garmentLoadGenRef.current !== thisGeneration) return;
+        console.error('Lỗi nạp mô hình GLB áo:', error);
         const errText =
-          'Không thể giải mã mô hình. Tệp có thể bị hỏng, mã hóa không đúng chuẩn Binary glTF 2.0 (.glb), hoặc thiếu tài nguyên texture đi kèm.';
+          'Không thể giải mã mô hình áo. Tệp có thể bị hỏng, mã hóa không đúng chuẩn Binary glTF 2.0 (.glb), hoặc thiếu tài nguyên texture đi kèm.';
         setErrorMessage(errText);
         setViewerStatus('error');
-        currentLoadedIdRef.current = null;
+        currentLoadedGarmentIdRef.current = null;
         onModelErrorRef.current?.(errText);
       }
     );
-  }, [activeModelId, retryTrigger, disposeCurrentModel]);
+  }, [activeModelId, retryTrigger, disposeCurrentGarment, disposeGroup, updateCameraFraming, computeRightSleeveSuggestedPos]);
 
-  // AUTO-SYNC EFFECT: When currentGarmentId changes in Studio Workspace,
-  // switch to matching loaded model if one is already available in this session
+  // ==========================================
+  // EFFECT 2: LOAD ACCESSORY MODEL (QUẠT RIÊNG BIỆT - KHÔNG TẢI LẠI ÁO)
+  // ==========================================
+  useEffect(() => {
+    if (!accessoryModel) {
+      if (currentLoadedAccessoryIdRef.current !== null) {
+        disposeCurrentAccessory();
+        currentLoadedAccessoryIdRef.current = null;
+        updateCameraFraming();
+      }
+      return;
+    }
+
+    if (currentLoadedAccessoryIdRef.current === accessoryModel.id) {
+      return;
+    }
+
+    const thisAccessoryGen = ++accessoryLoadGenRef.current;
+    setIsAccessoryLoading(true);
+    setAccessoryLoadingProgress(0);
+    setAccessoryError(null);
+
+    const file = accessoryModel.file;
+    if (!file.name.toLowerCase().endsWith('.glb')) {
+      setAccessoryError('Tệp phụ kiện phải có định dạng .glb.');
+      setIsAccessoryLoading(false);
+      return;
+    }
+
+    disposeCurrentAccessory();
+
+    const objectUrl = URL.createObjectURL(file);
+    const loader = new GLTFLoader();
+
+    loader.load(
+      objectUrl,
+      (gltf) => {
+        URL.revokeObjectURL(objectUrl);
+
+        if (accessoryLoadGenRef.current !== thisAccessoryGen) {
+          disposeGroup(gltf.scene);
+          return;
+        }
+
+        const scene = sceneRef.current;
+        if (!scene) {
+          setIsAccessoryLoading(false);
+          return;
+        }
+
+        const fanModel = gltf.scene;
+        accessoryInnerModelRef.current = fanModel;
+
+        // Bounding box of accessory
+        const rawBox = new THREE.Box3().setFromObject(fanModel);
+        const center = rawBox.getCenter(new THREE.Vector3());
+        const size = rawBox.getSize(new THREE.Vector3());
+
+        // Center geometry internally
+        fanModel.position.x = -center.x;
+        fanModel.position.y = -center.y;
+        fanModel.position.z = -center.z;
+
+        // Set initial rotation
+        fanModel.rotation.x = THREE.MathUtils.degToRad(accessoryRotX);
+        fanModel.rotation.y = THREE.MathUtils.degToRad(accessoryRotY);
+        fanModel.rotation.z = THREE.MathUtils.degToRad(accessoryRotZ);
+
+        // Outer positioning pivot group
+        const pivot = new THREE.Group();
+        pivot.add(fanModel);
+
+        // Position: use current offset (aligned near right sleeve)
+        pivot.position.set(accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ);
+        pivot.scale.set(accessoryScale, accessoryScale, accessoryScale);
+        pivot.visible = isAccessoryVisible;
+
+        accessoryPivotRef.current = pivot;
+        scene.add(pivot);
+
+        const dimensions = {
+          width: Number(size.x.toFixed(2)),
+          height: Number(size.y.toFixed(2)),
+          depth: Number(size.z.toFixed(2)),
+        };
+
+        setAccessoryModel((prev) => (prev ? { ...prev, dimensions } : null));
+
+        currentLoadedAccessoryIdRef.current = accessoryModel.id;
+        setIsAccessoryLoading(false);
+        setAccessoryLoadingProgress(100);
+
+        updateCameraFraming();
+      },
+      (progress) => {
+        if (accessoryLoadGenRef.current !== thisAccessoryGen) return;
+        if (progress.total > 0) {
+          const percent = Math.round((progress.loaded / progress.total) * 100);
+          setAccessoryLoadingProgress(percent);
+        }
+      },
+      (error) => {
+        URL.revokeObjectURL(objectUrl);
+        if (accessoryLoadGenRef.current !== thisAccessoryGen) return;
+        console.error('Lỗi nạp mô hình phụ kiện GLB:', error);
+        setAccessoryError(
+          'Không thể giải mã tệp phụ kiện. Vui lòng kiểm tra lại định dạng tệp .glb hoặc dung lượng.'
+        );
+        setIsAccessoryLoading(false);
+        currentLoadedAccessoryIdRef.current = null;
+      }
+    );
+  }, [
+    accessoryModel,
+    disposeCurrentAccessory,
+    disposeGroup,
+    updateCameraFraming,
+    accessoryOffsetX,
+    accessoryOffsetY,
+    accessoryOffsetZ,
+    accessoryRotX,
+    accessoryRotY,
+    accessoryRotZ,
+    accessoryScale,
+    isAccessoryVisible,
+  ]);
+
+  // Auto-sync effect with studio garment selection
   useEffect(() => {
     const list = loadedModelsRef.current;
     if (list.length === 0) return;
@@ -430,21 +711,20 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     }
   }, [currentGarmentId, activeModelId]);
 
-  // Reset camera view to auto-framed state (Căn chuẩn theo Bounding Box thực tế)
+  // Reset camera view
   const handleResetCamera = () => {
     if (cameraRef.current && controlsRef.current) {
       if (initialViewRef.current) {
         cameraRef.current.position.copy(initialViewRef.current.cameraPos);
         controlsRef.current.target.copy(initialViewRef.current.target);
       } else {
-        cameraRef.current.position.set(0, 1.2, 3);
-        controlsRef.current.target.set(0, 0, 0);
+        updateCameraFraming();
       }
       controlsRef.current.update();
     }
   };
 
-  // Zoom In button handler (Tịnh tiến camera lại gần tâm mô hình theo vector, kiểm soát minDistance)
+  // Zoom In button handler
   const handleZoomIn = () => {
     if (cameraRef.current && controlsRef.current) {
       const camera = cameraRef.current;
@@ -462,7 +742,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     }
   };
 
-  // Zoom Out button handler (Lùi camera xa khỏi tâm mô hình theo vector, kiểm soát maxDistance)
+  // Zoom Out button handler
   const handleZoomOut = () => {
     if (cameraRef.current && controlsRef.current) {
       const camera = cameraRef.current;
@@ -480,8 +760,8 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     }
   };
 
-  // Process dropped or selected files (Hỗ trợ nạp một hoặc nhiều tệp cùng lúc)
-  const handleProcessFiles = (files: FileList | File[]) => {
+  // Process garment files
+  const handleProcessGarmentFiles = (files: FileList | File[]) => {
     setErrorMessage(null);
     const fileArray = Array.from(files);
     const validGlbFiles = fileArray.filter((f) => f.name.toLowerCase().endsWith('.glb'));
@@ -504,7 +784,6 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       return;
     }
 
-    // Build session records
     const newRecords: SessionModelRecord[] = validGlbFiles.map((file) => {
       const meta = matchUploadedModelMeta(file.name);
       const detection = detectGarmentFromFilename(file.name);
@@ -520,6 +799,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
         assignedGarmentLabel,
         matchedMeta: meta,
         uploadedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+        modelKind: 'garment',
       };
     });
 
@@ -538,19 +818,61 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       return updated;
     });
 
-    // Select the best matching model or first newly uploaded model
     const matching =
       newRecords.find((r) => r.assignedGarmentId === currentGarmentId) || newRecords[0];
     if (matching) {
-      currentLoadedIdRef.current = null; // Force fresh decode
+      currentLoadedGarmentIdRef.current = null;
       setActiveModelId(matching.id);
     }
   };
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Process accessory file
+  const handleProcessAccessoryFile = (files: FileList | File[]) => {
+    setAccessoryError(null);
+    const fileArray = Array.from(files);
+    const file = fileArray.find((f) => f.name.toLowerCase().endsWith('.glb'));
+
+    if (!file) {
+      setAccessoryError('Vui lòng chọn tệp mô hình phụ kiện chuẩn .glb.');
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      setAccessoryError(`Tệp phụ kiện (${sizeMb} MB) vượt quá giới hạn 50 MB.`);
+      return;
+    }
+
+    const meta = matchUploadedModelMeta(file.name);
+
+    const record: AccessoryModelRecord = {
+      id: `acc-${file.name}-${Date.now()}`,
+      file,
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      matchedMeta: meta,
+      uploadedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    currentLoadedAccessoryIdRef.current = null;
+    setAccessoryModel(record);
+    setIsAccessoryVisible(true);
+  };
+
+  const handleGarmentFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleProcessFiles(files);
+      handleProcessGarmentFiles(files);
+    }
+    if (e.target) {
+      e.target.value = '';
+    }
+  };
+
+  const handleAccessoryFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      handleProcessAccessoryFile(files);
     }
     if (e.target) {
       e.target.value = '';
@@ -576,22 +898,30 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     setIsDraggingOver(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleProcessFiles(e.dataTransfer.files);
+      const firstFile = e.dataTransfer.files[0];
+      const nameLower = firstFile.name.toLowerCase();
+      if (nameLower.includes('fan') || nameLower.includes('quat')) {
+        handleProcessAccessoryFile([firstFile]);
+      } else {
+        handleProcessGarmentFiles(e.dataTransfer.files);
+      }
     }
   };
 
-  // Remove a model from session
-  const handleRemoveModel = (idToRemove: string) => {
+  // Remove a garment model from session
+  const handleRemoveGarmentModel = (idToRemove: string) => {
     setLoadedModels((prev) => {
       const nextList = prev.filter((m) => m.id !== idToRemove);
       if (activeModelId === idToRemove) {
-        disposeCurrentModel();
-        currentLoadedIdRef.current = null;
+        disposeCurrentGarment();
+        currentLoadedGarmentIdRef.current = null;
         const nextActive =
           nextList.find((m) => m.assignedGarmentId === currentGarmentId) || nextList[0] || null;
         setActiveModelId(nextActive ? nextActive.id : null);
         if (!nextActive) {
-          setViewerStatus('idle');
+          if (!accessoryModelRef.current) {
+            setViewerStatus('idle');
+          }
           onModelClearedRef.current?.();
         }
       }
@@ -599,109 +929,418 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     });
   };
 
+  // Remove accessory model
+  const handleRemoveAccessory = () => {
+    disposeCurrentAccessory();
+    currentLoadedAccessoryIdRef.current = null;
+    setAccessoryModel(null);
+    setAccessoryError(null);
+    setShowAccessoryControls(false);
+    updateCameraFraming();
+  };
+
+  // Format bytes
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(0)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  // Retry loading current garment model
+  const handleRetryCurrentModel = () => {
+    currentLoadedGarmentIdRef.current = null;
+    setRetryTrigger((prev) => prev + 1);
+  };
+
   // Clear all models
   const handleClearAllModels = () => {
-    disposeCurrentModel();
-    currentLoadedIdRef.current = null;
+    disposeCurrentGarment();
+    currentLoadedGarmentIdRef.current = null;
     setLoadedModels([]);
     setActiveModelId(null);
-    setViewerStatus('idle');
+    setViewerStatus(accessoryModel ? 'ready' : 'idle');
     setErrorMessage(null);
     onModelClearedRef.current?.();
   };
 
-  // Update assigned garment for a model
-  const handleUpdateAssignedGarment = (modelId: string, newGarmentId: string) => {
+  // Update assigned garment ID for a record
+  const handleUpdateAssignedGarment = (id: string, newGarmentId: string) => {
+    const opt = GARMENTS_ASSIGNABLE_OPTIONS.find((o) => o.id === newGarmentId);
     setLoadedModels((prev) =>
-      prev.map((item) => {
-        if (item.id !== modelId) return item;
-
-        let meta: SampleModelMeta | null = null;
-        let label = 'Dòng y phục khác';
-
-        if (newGarmentId === 'ao-tu-than') {
-          meta = SAMPLE_MODELS_REGISTRY['tu-than-color.glb'];
-          label = 'Áo Tứ Thân';
-        } else if (newGarmentId === 'ao-dai-hien-dai') {
-          meta = SAMPLE_MODELS_REGISTRY['ao-dai-blue.glb'];
-          label = 'Áo Dài Hiện Đại';
-        } else if (newGarmentId === 'ao-nhat-binh') {
-          meta = SAMPLE_MODELS_REGISTRY['nhat-binh.glb'];
-          label = 'Áo Nhật Bình';
-        } else if (newGarmentId === 'ao-ngu-than') {
-          label = 'Áo Ngũ Thân';
-        }
-
-        return {
-          ...item,
-          assignedGarmentId: newGarmentId,
-          assignedGarmentLabel: label,
-          matchedMeta: meta,
-        };
-      })
+      prev.map((m) =>
+        m.id === id
+          ? {
+              ...m,
+              assignedGarmentId: newGarmentId,
+              assignedGarmentLabel: opt ? opt.label : newGarmentId,
+            }
+          : m
+      )
     );
   };
 
-  // Retry loading current active model
-  const handleRetryCurrentModel = () => {
-    currentLoadedIdRef.current = null;
-    setRetryTrigger((prev) => prev + 1);
-  };
-
-  // Check mismatch between active model and current Studio garment
-  const isGarmentTypeMismatched = (() => {
-    if (!activeRecord || viewerStatus !== 'ready') return false;
-    const assigned = activeRecord.assignedGarmentId;
-    if (assigned === 'custom_other') return false;
-
-    if (assigned === 'ao-tu-than' && currentGarmentId !== 'ao-tu-than') return true;
-    if (assigned === 'ao-dai-hien-dai' && currentGarmentId !== 'ao-dai-hien-dai') return true;
-    if (assigned === 'ao-nhat-binh' && currentGarmentId !== 'ao-nhat-binh') return true;
-    if (
-      assigned === 'ao-ngu-than' &&
-      currentGarmentId !== 'ngu-than-tay-chen' &&
-      currentGarmentId !== 'ao-tac-ngu-than-tay-thung'
-    ) {
-      return true;
-    }
-
-    return false;
-  })();
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-  };
-
-  const isModelReady = viewerStatus === 'ready' && activeRecord !== null;
+  const isModelReady = viewerStatus === 'ready';
   const isCurrentlyLoading = viewerStatus === 'loading';
+  const isGarmentTypeMismatched =
+    activeRecord &&
+    activeRecord.assignedGarmentId !== 'custom_other' &&
+    activeRecord.assignedGarmentId !== currentGarmentId;
+
+  const accessoryMeta = accessoryModel?.matchedMeta;
 
   return (
-    <div className="space-y-4">
-      {/* 3D VIEWPORT CONTAINER */}
-      <div className="relative aspect-[3/4] bg-[#F6F3ED] rounded-sm border border-[#241E1C]/15 overflow-hidden flex flex-col justify-between select-none">
-        {/* Hidden file input (supports multiple files upload) */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".glb"
-          multiple
-          className="hidden"
-          onChange={handleFileInputChange}
-        />
+    <div className="space-y-3 w-full max-w-full overflow-hidden">
+      {/* Hidden inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".glb"
+        multiple
+        className="hidden"
+        onChange={handleGarmentFileInputChange}
+      />
+      <input
+        ref={additionalFileInputRef}
+        type="file"
+        accept=".glb"
+        multiple
+        className="hidden"
+        onChange={handleGarmentFileInputChange}
+      />
+      <input
+        ref={accessoryFileInputRef}
+        type="file"
+        accept=".glb"
+        className="hidden"
+        onChange={handleAccessoryFileInputChange}
+      />
 
-        {/* Hidden additional file input */}
-        <input
-          ref={additionalFileInputRef}
-          type="file"
-          accept=".glb"
-          multiple
-          className="hidden"
-          onChange={handleFileInputChange}
-        />
+      {/* 1. COMPACT TOP STATUS STRIP (OUTSIDE CANVAS - Không che cổ áo hay tà trên) */}
+      <div className="bg-[#FAF7F2] p-2.5 rounded-sm border border-[#241E1C]/15 flex flex-wrap items-center justify-between gap-2 text-xs">
+        {/* Model info tags */}
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          {activeRecord ? (
+            <div className="flex items-center gap-1.5 bg-white px-2 py-1 rounded-xs border border-[#241E1C]/10 text-xs shadow-2xs">
+              <span className="w-2 h-2 rounded-full bg-[#8B2626] shrink-0" />
+              <strong className="text-[#8B2626] truncate max-w-[140px] sm:max-w-[200px]" title={activeRecord.fileName}>
+                {modelMeta?.title || activeRecord.fileName}
+              </strong>
+              <span className="text-[10px] text-stone-500 font-mono">({formatFileSize(activeRecord.fileSizeBytes)})</span>
+              <span className="text-[10px] text-[#1B4D3E] font-medium hidden md:inline">· {activeRecord.assignedGarmentLabel}</span>
+            </div>
+          ) : (
+            <div className="text-stone-500 text-[11px] flex items-center gap-1">
+              <Info className="w-3.5 h-3.5" />
+              <span>Chưa có áo chính trong không gian 3D</span>
+            </div>
+          )}
 
+          {/* Quick accessory badge if loaded */}
+          {accessoryModel && (
+            <div className="flex items-center gap-1.5 bg-emerald-50/80 px-2 py-1 rounded-xs border border-emerald-200 text-xs shadow-2xs">
+              <Fan className="w-3.5 h-3.5 text-[#1B4D3E] shrink-0" />
+              <span className="text-[#1B4D3E] font-medium truncate max-w-[130px] sm:max-w-[180px]">
+                {accessoryMeta?.title || accessoryModel.fileName}
+              </span>
+              <span className={`text-[9px] px-1 py-0.2 rounded-xs font-semibold ${isAccessoryVisible ? 'bg-emerald-600 text-white' : 'bg-stone-300 text-stone-700'}`}>
+                {isAccessoryVisible ? 'Đang hiện' : 'Đang ẩn'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Viewport Action Tools */}
+        <div className="flex items-center gap-1 shrink-0 ml-auto">
+          {/* Grid Toggle Button (Lưới tọa độ) */}
+          <button
+            type="button"
+            onClick={() => setShowGrid(!showGrid)}
+            className={`p-1.5 border rounded-xs shadow-2xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1 ${
+              showGrid
+                ? 'bg-[#241E1C] text-white border-[#241E1C]'
+                : 'bg-white hover:bg-stone-50 text-[#241E1C] border-[#241E1C]/15'
+            }`}
+            title={showGrid ? 'Tắt lưới tọa độ sàn' : 'Bật lưới tọa độ sàn'}
+          >
+            <Grid className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline text-[11px]">Lưới</span>
+          </button>
+
+          {/* Accessory Controls Drawer Toggle Button */}
+          {accessoryModel && (
+            <button
+              type="button"
+              onClick={() => setShowAccessoryControls(!showAccessoryControls)}
+              className={`p-1.5 border rounded-xs shadow-2xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1 ${
+                showAccessoryControls
+                  ? 'bg-[#1B4D3E] text-white border-[#1B4D3E]'
+                  : 'bg-white hover:bg-stone-50 text-[#1B4D3E] border-[#1B4D3E]/30'
+              }`}
+              title="Bảng chỉnh vị trí & góc xoay quạt"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">Chỉnh quạt</span>
+            </button>
+          )}
+
+          {/* Zoom In */}
+          <button
+            type="button"
+            onClick={handleZoomIn}
+            className="p-1.5 bg-white hover:bg-stone-50 text-[#241E1C] border border-[#241E1C]/15 rounded-xs shadow-2xs text-xs cursor-pointer transition-colors"
+            title="Phóng to (+)"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Zoom Out */}
+          <button
+            type="button"
+            onClick={handleZoomOut}
+            className="p-1.5 bg-white hover:bg-stone-50 text-[#241E1C] border border-[#241E1C]/15 rounded-xs shadow-2xs text-xs cursor-pointer transition-colors"
+            title="Thu nhỏ (-)"
+          >
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Reset Camera */}
+          <button
+            type="button"
+            onClick={handleResetCamera}
+            className="p-1.5 bg-white hover:bg-stone-50 text-[#8B2626] border border-[#241E1C]/15 rounded-xs shadow-2xs text-xs cursor-pointer transition-colors flex items-center gap-1"
+            title="Đặt lại góc nhìn camera"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="hidden md:inline text-[11px]">Góc nhìn</span>
+          </button>
+
+          {/* Auto Rotate */}
+          <button
+            type="button"
+            onClick={() => setIsAutoRotating(!isAutoRotating)}
+            className={`p-1.5 border rounded-xs shadow-2xs text-xs cursor-pointer transition-colors flex items-center gap-1 ${
+              isAutoRotating
+                ? 'bg-[#8B2626] text-white border-[#8B2626]'
+                : 'bg-white hover:bg-stone-50 text-[#241E1C] border-[#241E1C]/15'
+            }`}
+            title={isAutoRotating ? 'Dừng tự xoay' : 'Tự động xoay'}
+          >
+            {isAutoRotating ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 text-[#8B2626]" />}
+          </button>
+        </div>
+      </div>
+
+      {/* MISMATCH WARNING NOTICE (Đưa ra ngoài canvas để không che khuất mô hình) */}
+      {isGarmentTypeMismatched && (
+        <div className="p-2.5 bg-amber-50 border border-amber-300 rounded-xs text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 shadow-2xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
+            <span className="text-[11px]">
+              Mô hình 3D: <strong>{activeRecord.assignedGarmentLabel}</strong> · Studio đang chọn: <strong>{currentGarmentName}</strong>
+            </span>
+          </div>
+
+          {onSyncGarmentRef.current && activeRecord.assignedGarmentId !== 'custom_other' && (
+            <button
+              type="button"
+              onClick={() => onSyncGarmentRef.current?.(activeRecord.assignedGarmentId)}
+              className="px-2.5 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded-xs text-[10px] font-semibold cursor-pointer transition-colors flex items-center gap-1 shrink-0 ml-auto"
+            >
+              <span>Chuyển bàn phối sang {activeRecord.assignedGarmentLabel}</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* 2. DEDICATED ACCESSORY FINE-TUNING PANEL (HIỂN THỊ KHI BẬT, NẰM NGOÀI CANVAS ĐỂ KHÔNG CHE ÁO) */}
+      {accessoryModel && showAccessoryControls && (
+        <div className="bg-white p-3.5 rounded-sm border border-[#1B4D3E]/30 shadow-xs space-y-3 text-xs animate-in fade-in">
+          <div className="flex items-center justify-between border-b border-[#1B4D3E]/10 pb-2">
+            <div className="flex items-center gap-2">
+              <Fan className="w-4 h-4 text-[#1B4D3E]" />
+              <strong className="text-sm font-semibold text-[#1B4D3E]">
+                Bảng tinh chỉnh vị trí & góc xoay quạt 3D
+              </strong>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Nút Ẩn / Hiện Quạt */}
+              <button
+                type="button"
+                onClick={() => setIsAccessoryVisible(!isAccessoryVisible)}
+                className={`px-2 py-1 rounded-xs text-[11px] font-medium border cursor-pointer transition-colors flex items-center gap-1 ${
+                  isAccessoryVisible
+                    ? 'bg-emerald-50 text-[#1B4D3E] border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-stone-100 text-stone-600 border-stone-300 hover:bg-stone-200'
+                }`}
+                title={isAccessoryVisible ? 'Ẩn quạt khỏi khung 3D' : 'Hiện quạt trở lại'}
+              >
+                {isAccessoryVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                <span>{isAccessoryVisible ? 'Đang hiện' : 'Đang ẩn'}</span>
+              </button>
+
+              {/* Nút Reset về vị trí gợi ý ban đầu */}
+              <button
+                type="button"
+                onClick={handleResetAccessoryToSuggested}
+                className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xs text-[11px] font-medium cursor-pointer transition-colors flex items-center gap-1"
+                title="Khôi phục vị trí gợi ý gần ống tay phải áo"
+              >
+                <RotateCcw className="w-3 h-3 text-[#1B4D3E]" />
+                <span>Đặt lại vị trí gợi ý</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAccessoryControls(false)}
+                className="p-1 text-stone-400 hover:text-stone-700"
+                title="Đóng bảng chỉnh"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Sliders Grid: Trái phải (X), Lên xuống (Y), Trước sau (Z), Xoay (Yaw Y), Nghiêng (Roll Z), Tỉ lệ (Scale) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-[11px]">
+            {/* 1. Trái / Phải (X) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Trái - Phải (X):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetX.toFixed(2)}m</span>
+              </div>
+              <input
+                type="range"
+                min="0.2"
+                max="1.4"
+                step="0.02"
+                value={accessoryOffsetX}
+                onChange={(e) => setAccessoryOffsetX(parseFloat(e.target.value))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Gần thân</span>
+                <span>Xa tay</span>
+              </div>
+            </div>
+
+            {/* 2. Lên / Xuống (Y) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Lên - Xuống (Y):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetY.toFixed(2)}m</span>
+              </div>
+              <input
+                type="range"
+                min="-0.7"
+                max="0.4"
+                step="0.02"
+                value={accessoryOffsetY}
+                onChange={(e) => setAccessoryOffsetY(parseFloat(e.target.value))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Hạ thấp</span>
+                <span>Nâng cao</span>
+              </div>
+            </div>
+
+            {/* 3. Trước / Sau (Z) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Trước - Sau (Z):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetZ.toFixed(2)}m</span>
+              </div>
+              <input
+                type="range"
+                min="-0.3"
+                max="0.6"
+                step="0.02"
+                value={accessoryOffsetZ}
+                onChange={(e) => setAccessoryOffsetZ(parseFloat(e.target.value))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Sau tà</span>
+                <span>Trước ngực</span>
+              </div>
+            </div>
+
+            {/* 4. Góc Xoay Hướng Quạt (Yaw - Y) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Góc xoay (Y):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryRotY}°</span>
+              </div>
+              <input
+                type="range"
+                min="-90"
+                max="90"
+                step="5"
+                value={accessoryRotY}
+                onChange={(e) => setAccessoryRotY(parseInt(e.target.value, 10))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Quay trong</span>
+                <span>Quay ngoài</span>
+              </div>
+            </div>
+
+            {/* 5. Góc Nghiêng Quạt (Roll - Z) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Độ nghiêng (Z):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryRotZ}°</span>
+              </div>
+              <input
+                type="range"
+                min="-60"
+                max="60"
+                step="5"
+                value={accessoryRotZ}
+                onChange={(e) => setAccessoryRotZ(parseInt(e.target.value, 10))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Nghiêng trái</span>
+                <span>Nghiêng phải</span>
+              </div>
+            </div>
+
+            {/* 6. Tỉ lệ Kích Thước (Scale) */}
+            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
+              <div className="flex justify-between font-medium text-stone-700">
+                <span>Kích thước (Scale):</span>
+                <span className="font-mono text-[#1B4D3E]">{accessoryScale.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="1.8"
+                step="0.05"
+                value={accessoryScale}
+                onChange={(e) => setAccessoryScale(parseFloat(e.target.value))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>Thu nhỏ</span>
+                <span>Phóng lớn</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-[10px] text-stone-500 italic bg-[#FAF7F2] px-2.5 py-1 rounded-xs flex items-center justify-between">
+            <span>* Vị trí gợi ý ban đầu được tính tự động từ bounding box ống tay áo phải ({suggestedAccessoryPos.x}m, {suggestedAccessoryPos.y}m, {suggestedAccessoryPos.z}m).</span>
+            <span>Không làm nạp lại mô hình áo.</span>
+          </div>
+        </div>
+      )}
+
+      {/* 3. CLEAN THREE.JS CANVAS VIEWPORT (THOÁNG ĐÃNG - KHÔNG BỊ OVERLAY CHE KHUẤT CỔ ÁO HAY DẢI TÀ) */}
+      <div className="relative w-full aspect-[4/3] min-h-[440px] max-h-[580px] bg-[#F6F3ED] border border-[#241E1C]/15 rounded-sm overflow-hidden select-none">
         {/* THREE.JS CANVAS CONTAINER */}
         <div
           ref={containerRef}
@@ -710,175 +1349,26 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
           }`}
         />
 
-        {/* TOP OVERLAY CONTROLS (Active when model is ready) */}
-        {isModelReady && activeRecord && (
-          <div className="relative z-20 p-3 space-y-2 pointer-events-auto">
-            <div className="flex items-start justify-between gap-2">
-              {/* Active Model Name & Type Badge */}
-              <div className="bg-white/95 backdrop-blur-xs p-2 px-3 rounded-xs border border-[#241E1C]/10 shadow-xs max-w-[65%] space-y-1">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-[#8B2626] truncate">
-                  <FileCheck className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate" title={activeRecord.fileName}>
-                    {modelMeta?.title || activeRecord.fileName}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 text-[10px] text-stone-500">
-                  <span>{formatFileSize(activeRecord.fileSizeBytes)}</span>
-                  <span>·</span>
-                  <span className="text-[#1B4D3E] font-medium">
-                    {activeRecord.assignedGarmentLabel}
-                  </span>
-                  {activeRecord.dimensions && (
-                    <>
-                      <span>·</span>
-                      <span className="text-stone-600 font-mono text-[9px]">
-                        {activeRecord.dimensions.width}m × {activeRecord.dimensions.height}m ×{' '}
-                        {activeRecord.dimensions.depth}m
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Viewport Control Buttons */}
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleZoomIn}
-                  className="p-1.5 bg-white/95 hover:bg-white text-[#241E1C] border border-[#241E1C]/15 rounded-xs shadow-xs text-xs font-medium cursor-pointer transition-colors"
-                  title="Phóng to mô hình (+)"
-                >
-                  <ZoomIn className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleZoomOut}
-                  className="p-1.5 bg-white/95 hover:bg-white text-[#241E1C] border border-[#241E1C]/15 rounded-xs shadow-xs text-xs font-medium cursor-pointer transition-colors"
-                  title="Thu nhỏ mô hình (-)"
-                >
-                  <ZoomOut className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleResetCamera}
-                  className="p-1.5 bg-white/95 hover:bg-white text-[#241E1C] border border-[#241E1C]/15 rounded-xs shadow-xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1"
-                  title="Đặt lại góc nhìn camera ban đầu"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-[#8B2626]" />
-                  <span className="hidden sm:inline text-[11px]">Góc nhìn</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsAutoRotating(!isAutoRotating)}
-                  className={`p-1.5 border rounded-xs shadow-xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1 ${
-                    isAutoRotating
-                      ? 'bg-[#8B2626] text-white border-[#8B2626]'
-                      : 'bg-white/95 hover:bg-white text-[#241E1C] border-[#241E1C]/15'
-                  }`}
-                  title={isAutoRotating ? 'Dừng tự xoay' : 'Tự động xoay mô hình'}
-                >
-                  {isAutoRotating ? (
-                    <Pause className="w-3.5 h-3.5" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5 text-[#8B2626]" />
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => additionalFileInputRef.current?.click()}
-                  className="p-1.5 bg-white/95 hover:bg-white text-[#8B2626] border border-[#241E1C]/15 rounded-xs shadow-xs text-xs font-medium cursor-pointer transition-colors"
-                  title="Nạp thêm file .glb khác"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleRemoveModel(activeRecord.id)}
-                  className="p-1.5 bg-white/95 hover:bg-red-50 text-red-700 border border-red-200 rounded-xs shadow-xs text-xs cursor-pointer transition-colors"
-                  title="Gỡ bỏ mô hình đang xem"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Assigned Garment Selector for Active Model */}
-            <div className="bg-white/95 backdrop-blur-xs p-2 rounded-xs border border-[#241E1C]/10 shadow-xs flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-stone-600 font-medium">
-                  Gắn dòng Việt phục:
-                </span>
-                <select
-                  value={activeRecord.assignedGarmentId}
-                  onChange={(e) =>
-                    handleUpdateAssignedGarment(activeRecord.id, e.target.value)
-                  }
-                  className="bg-[#FAF7F2] border border-[#241E1C]/20 px-2 py-0.5 rounded-xs text-[11px] font-medium text-[#241E1C] focus:outline-none focus:border-[#8B2626]"
-                >
-                  {GARMENTS_ASSIGNABLE_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <span className="text-[10px] text-stone-500 italic">
-                (Đã căn chuẩn tâm 0,0,0 & bounding box)
-              </span>
-            </div>
-
-            {/* MISMATCH WARNING NOTICE */}
-            {isGarmentTypeMismatched && (
-              <div className="p-2.5 bg-amber-50/95 border border-amber-300 rounded-xs text-xs text-amber-900 flex items-start justify-between gap-2 shadow-xs animate-in fade-in">
-                <div className="flex items-start gap-2">
-                  <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5 text-[11px]">
-                    <strong className="block text-amber-950 font-semibold">
-                      Lệch dòng y phục so với bàn phối Studio
-                    </strong>
-                    <p className="text-amber-900/90 leading-tight">
-                      Mô hình 3D đang xem là <strong>{activeRecord.assignedGarmentLabel}</strong>, trong
-                      khi bàn phối Studio đang thiết lập <strong>{currentGarmentName}</strong>.
-                    </p>
-                  </div>
-                </div>
-
-                {onSyncGarmentRef.current && activeRecord.assignedGarmentId !== 'custom_other' && (
-                  <button
-                    type="button"
-                    onClick={() => onSyncGarmentRef.current?.(activeRecord.assignedGarmentId)}
-                    className="px-2.5 py-1 bg-amber-800 hover:bg-amber-900 text-white rounded-xs text-[10px] font-semibold whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1 shadow-xs shrink-0"
-                  >
-                    <span>Chuyển bàn phối sang {activeRecord.assignedGarmentLabel}</span>
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* LOADING OVERLAY (Displayed strictly while loading, disappears completely when ready) */}
+        {/* LOADING OVERLAY (Garment) */}
         {isCurrentlyLoading && (
           <div className="absolute inset-0 z-30 bg-[#F6F3ED]/85 backdrop-blur-xs flex flex-col items-center justify-center p-6 text-center space-y-3">
             <div className="w-9 h-9 border-3 border-[#8B2626]/20 border-t-[#8B2626] rounded-full animate-spin" />
             <div className="space-y-1">
               <h4 className="font-serif text-sm font-semibold text-[#241E1C]">
-                Đang giải mã mô hình 3D...
+                Đang giải mã mô hình áo 3D...
               </h4>
               <p className="text-xs text-stone-600">
-                {loadingProgress > 0
-                  ? `Đang nạp: ${loadingProgress}%`
-                  : 'Đang xử lý cấu trúc lưới và vật liệu'}
+                {loadingProgress > 0 ? `Đang nạp: ${loadingProgress}%` : 'Đang xử lý cấu trúc lưới và vật liệu'}
               </p>
             </div>
+          </div>
+        )}
+
+        {/* LOADING OVERLAY (Accessory) */}
+        {isAccessoryLoading && !isCurrentlyLoading && (
+          <div className="absolute top-3 right-3 z-30 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-xs border border-[#1B4D3E]/30 shadow-md flex items-center gap-2 text-xs text-[#1B4D3E]">
+            <div className="w-3.5 h-3.5 border-2 border-[#1B4D3E]/20 border-t-[#1B4D3E] rounded-full animate-spin" />
+            <span>Đang giải mã quạt 3D ({accessoryLoadingProgress}%)...</span>
           </div>
         )}
 
@@ -914,7 +1404,21 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
           </div>
         )}
 
-        {/* EMPTY STATE: IMPORT DROPZONE & GUIDELINES (When no active model is ready) */}
+        {/* ACCESSORY ERROR NOTIFICATION */}
+        {accessoryError && (
+          <div className="relative z-30 m-3 p-2 bg-red-50 border border-red-200 rounded-xs text-[11px] text-red-700 flex items-center justify-between gap-2">
+            <span>{accessoryError}</span>
+            <button
+              type="button"
+              onClick={() => setAccessoryError(null)}
+              className="text-red-500 hover:text-red-800"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* EMPTY STATE DROPZONE */}
         {!isModelReady && !isCurrentlyLoading && !errorMessage && (
           <div
             onDragOver={handleDragOver}
@@ -934,7 +1438,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
             </div>
 
             {/* Center Dropzone Area */}
-            <div className="my-auto space-y-3.5 max-w-sm">
+            <div className="my-auto space-y-3 max-w-sm">
               <div className="w-14 h-14 mx-auto rounded-full bg-white border border-[#241E1C]/15 flex items-center justify-center shadow-xs text-[#8B2626]">
                 <Upload className="w-6 h-6" />
               </div>
@@ -944,22 +1448,33 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
                   Tải mô hình .glb từ máy tính
                 </h3>
                 <p className="text-xs text-[#241E1C]/75 leading-relaxed">
-                  Hỗ trợ tải lần lượt hoặc chọn cùng lúc 3 tệp mẫu: <code>tu-than-color.glb</code>,{' '}
-                  <code>ao-dai-blue.glb</code>, <code>nhat-binh.glb</code>.
+                  Hỗ trợ tải áo chính (<code>tu-than-color.glb</code>, <code>ao-dai-blue.glb</code>,{' '}
+                  <code>nhat-binh.glb</code>) và phụ kiện riêng (<code>fan-decorated.glb</code>).
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-4 py-2 bg-[#8B2626] hover:bg-[#741E1E] text-white text-xs font-semibold rounded-xs shadow-xs transition-colors cursor-pointer inline-flex items-center gap-2 active:scale-98"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Tải mô hình .glb (Chọn 1 hoặc nhiều tệp)</span>
-              </button>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full sm:w-auto px-4 py-2 bg-[#8B2626] hover:bg-[#741E1E] text-white text-xs font-semibold rounded-xs shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-2 active:scale-98"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Tải mô hình áo .glb</span>
+                </button>
 
-              {/* Model Availability Notice for current garment */}
-              <div className="p-3 bg-white/85 rounded-xs border border-[#241E1C]/10 text-left text-[11px] space-y-1.5">
+                <button
+                  type="button"
+                  onClick={() => accessoryFileInputRef.current?.click()}
+                  className="w-full sm:w-auto px-3.5 py-2 bg-white hover:bg-[#1B4D3E]/5 text-[#1B4D3E] border border-[#1B4D3E] text-xs font-semibold rounded-xs shadow-xs transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 active:scale-98"
+                >
+                  <Fan className="w-3.5 h-3.5" />
+                  <span>Tải quạt .glb</span>
+                </button>
+              </div>
+
+              {/* Model Availability Notice */}
+              <div className="p-2.5 bg-white/85 rounded-xs border border-[#241E1C]/10 text-left text-[11px] space-y-1">
                 <div className="font-semibold text-[#241E1C] flex items-center justify-between">
                   <span>Dòng áo đang chọn: {currentGarmentName}</span>
                   <span className="text-[10px] text-stone-500">Mã: {currentGarmentId}</span>
@@ -976,94 +1491,103 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
             </div>
 
             {/* Bottom Security / Privacy notice */}
-            <div className="w-full bg-white/80 p-2.5 rounded-xs border border-[#241E1C]/10 text-[10px] text-stone-600 space-y-1 text-left">
+            <div className="w-full bg-white/80 p-2 rounded-xs border border-[#241E1C]/10 text-[10px] text-stone-600 text-left flex items-center justify-between">
               <div className="flex items-center gap-1 text-[#8B2626] font-medium">
                 <Info className="w-3 h-3 shrink-0" />
-                <span>Xử lý cục bộ bằng File API (Không tải file lên server)</span>
-              </div>
-              <p className="leading-relaxed text-[10px]">
-                Kéo chuột để xoay, cuộn chuột hoặc dùng nút +/- để phóng to/thu nhỏ. Camera tự căn theo
-                kích thước bounding box độc lập của từng model.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* BOTTOM OVERLAY STATUS WITH EXACT ATTRIBUTION & SKETCHFAB LINKS (When model is ready) */}
-        {isModelReady && activeRecord && (
-          <div className="relative z-20 p-3 pt-0 pointer-events-auto">
-            <div className="bg-white/95 backdrop-blur-xs p-2.5 rounded-xs border border-[#241E1C]/10 shadow-xs space-y-1.5 text-left">
-              {/* Model Title & Label */}
-              <div className="flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <strong className="text-[#8B2626]">
-                    {modelMeta?.title || activeRecord.fileName}
-                  </strong>
-                  <span className="text-[9px] px-1.5 py-0.2 bg-amber-100 text-amber-800 font-medium rounded-xs">
-                    Mô hình minh họa 3D, chưa được thẩm định phục dựng
-                  </span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.2 bg-[#1B4D3E]/10 text-[#1B4D3E] font-semibold rounded-xs">
-                  {modelMeta?.license || 'CC BY 4.0'}
-                </span>
-              </div>
-
-              {/* Description */}
-              <p className="text-[10px] text-stone-600 leading-relaxed">
-                {modelMeta?.description ||
-                  'Mô hình 3D do người dùng nạp từ máy tính qua File API trong phiên làm việc.'}
-              </p>
-
-              {/* Attribution & Sketchfab Source URL */}
-              <div className="text-[10px] text-stone-600 pt-1 border-t border-[#241E1C]/5 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                <div>
-                  <strong>Tác giả:</strong> {modelMeta?.author || 'ghostnoface trên Sketchfab'} (Giấy
-                  phép CC BY 4.0)
-                </div>
-
-                {modelMeta?.sourceUrl && (
-                  <a
-                    href={modelMeta.sourceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#8B2626] hover:underline inline-flex items-center gap-1 font-medium text-[10px]"
-                  >
-                    <span>Nguồn Sketchfab</span>
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                )}
+                <span>Xử lý cục bộ bằng File API · Kéo chuột để xoay, cuộn chuột để zoom</span>
               </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* DEDICATED PANEL: QUẢN LÝ VÀ CHUẨN HOÁ MÔ HÌNH 3D ĐÃ TẢI TRONG PHIÊN */}
-      <div className="bg-[#FAF7F2] p-4 rounded-sm border border-[#241E1C]/15 space-y-3.5">
+      {/* 4. COMPACT ATTRIBUTION & SOURCE INFO (NẰM DƯỚI CANVAS - KHÔNG CHE MÔ HÌNH) */}
+      {isModelReady && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+          {/* Garment Attribution */}
+          {activeRecord && (
+            <div className="bg-[#FAF7F2] p-2.5 rounded-sm border border-[#241E1C]/10 space-y-1 text-left">
+              <div className="flex items-center justify-between">
+                <strong className="text-[#8B2626] text-[11px]">
+                  {modelMeta?.title || activeRecord.fileName}
+                </strong>
+                <span className="text-[10px] px-1.5 py-0.2 bg-[#8B2626]/10 text-[#8B2626] font-semibold rounded-xs">
+                  {modelMeta?.license || 'CC BY 4.0'}
+                </span>
+              </div>
+              <div className="text-[10px] text-stone-600 flex flex-wrap items-center justify-between gap-1 pt-0.5 border-t border-[#241E1C]/5">
+                <span>Tác giả: <strong>{modelMeta?.author || 'ghostnoface trên Sketchfab'}</strong></span>
+                {modelMeta?.sourceUrl && (
+                  <a
+                    href={modelMeta.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#8B2626] hover:underline inline-flex items-center gap-0.5 font-medium"
+                  >
+                    <span>Sketchfab</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Accessory Attribution */}
+          {accessoryModel && (
+            <div className="bg-[#FAF7F2] p-2.5 rounded-sm border border-[#1B4D3E]/20 space-y-1 text-left">
+              <div className="flex items-center justify-between">
+                <strong className="text-[#1B4D3E] text-[11px]">
+                  {accessoryMeta?.title || accessoryModel.fileName}
+                </strong>
+                <span className="text-[10px] px-1.5 py-0.2 bg-[#1B4D3E]/10 text-[#1B4D3E] font-semibold rounded-xs">
+                  {accessoryMeta?.license || 'CC BY 4.0'}
+                </span>
+              </div>
+              <div className="text-[10px] text-stone-600 flex flex-wrap items-center justify-between gap-1 pt-0.5 border-t border-[#1B4D3E]/10">
+                <span>Tác giả: <strong>{accessoryMeta?.author || 'staceyneko0415 trên Sketchfab'}</strong></span>
+                {accessoryMeta?.sourceUrl && (
+                  <a
+                    href={accessoryMeta.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[#1B4D3E] hover:underline inline-flex items-center gap-0.5 font-medium"
+                  >
+                    <span>Sketchfab</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 5. SESSION MODEL MANAGER (QUẢN LÝ TỆP ĐÃ NẠP TRONG PHIÊN) */}
+      <div className="bg-[#FAF7F2] p-3.5 rounded-sm border border-[#241E1C]/15 space-y-3">
         {/* Panel Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#241E1C]/10 pb-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#241E1C]/10 pb-2">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-xs bg-[#8B2626]/10 text-[#8B2626]">
-              <Box className="w-4 h-4" />
+            <div className="p-1 rounded-xs bg-[#8B2626]/10 text-[#8B2626]">
+              <Box className="w-3.5 h-3.5" />
             </div>
             <div>
               <h3 className="font-serif text-xs font-semibold text-[#241E1C] flex items-center gap-1.5">
-                <span>Mô hình 3D đã tải trong phiên</span>
+                <span>Danh mục mô hình 3D trong phiên</span>
                 <span className="font-sans text-[10px] px-1.5 py-0.2 rounded-full bg-[#8B2626] text-white font-medium">
-                  {loadedModels.length} tệp
+                  {loadedModels.length + (accessoryModel ? 1 : 0)} tệp
                 </span>
               </h3>
-              <p className="text-[10px] text-stone-500">
-                Lưu giữ trong bộ nhớ phiên làm việc · Chuyển đổi tức thì không cần tải lại
-              </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {loadedModels.length > 0 && (
+          <div className="flex items-center gap-1.5 ml-auto">
+            {(loadedModels.length > 0 || accessoryModel) && (
               <button
                 type="button"
-                onClick={handleClearAllModels}
+                onClick={() => {
+                  handleClearAllModels();
+                  handleRemoveAccessory();
+                }}
                 className="px-2 py-1 text-[11px] text-stone-600 hover:text-red-700 hover:bg-red-50 rounded-xs transition-colors cursor-pointer"
                 title="Gỡ toàn bộ mô hình khỏi phiên"
               >
@@ -1073,101 +1597,134 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
 
             <button
               type="button"
+              onClick={() => accessoryFileInputRef.current?.click()}
+              className="px-2.5 py-1 bg-white hover:bg-stone-50 text-[#1B4D3E] border border-[#1B4D3E] text-[11px] font-medium rounded-xs shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <Fan className="w-3 h-3" />
+              <span>Nạp quạt .glb</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => additionalFileInputRef.current?.click()}
-              className="px-2.5 py-1 bg-[#8B2626] hover:bg-[#741E1E] text-white text-[11px] font-medium rounded-xs shadow-xs transition-colors cursor-pointer flex items-center gap-1"
+              className="px-2.5 py-1 bg-[#8B2626] hover:bg-[#741E1E] text-white text-[11px] font-medium rounded-xs shadow-2xs transition-colors cursor-pointer flex items-center gap-1"
             >
               <Upload className="w-3 h-3" />
-              <span>Nạp thêm tệp .glb</span>
+              <span>Nạp thêm áo .glb</span>
             </button>
           </div>
         </div>
 
-        {/* List of Loaded Models in Session */}
-        {loadedModels.length === 0 ? (
-          <div className="p-4 bg-white rounded-xs border border-dashed border-[#241E1C]/20 text-center space-y-2">
-            <Layers className="w-6 h-6 text-stone-400 mx-auto" />
-            <div className="space-y-0.5">
-              <p className="text-xs font-medium text-[#241E1C]">
-                Chưa có mô hình nào được nạp vào phiên làm việc
-              </p>
-              <p className="text-[11px] text-stone-500 max-w-md mx-auto">
-                Bạn có thể nạp các tệp <code>tu-than-color.glb</code> (Tứ thân),{' '}
-                <code>ao-dai-blue.glb</code> (Áo dài), <code>nhat-binh.glb</code> (Nhật Bình) để sẵn
-                sàng chuyển qua lại khi phối đồ.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-1.5 bg-white border border-[#8B2626] text-[#8B2626] hover:bg-[#8B2626]/5 rounded-xs text-xs font-semibold cursor-pointer transition-colors inline-flex items-center gap-1.5"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Chọn các tệp .glb từ máy</span>
-            </button>
+        {/* SECTION: QUẠT PHỤ KIỆN */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-[#1B4D3E] flex items-center gap-1.5">
+              <Fan className="w-3.5 h-3.5" />
+              <span>Phụ kiện 3D: Quạt cầm tay (fan-decorated.glb)</span>
+            </span>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {loadedModels.map((item) => {
-              const isActive = item.id === activeModelId;
-              const matchesCurrentGarment =
-                (item.assignedGarmentId === 'ao-tu-than' && currentGarmentId === 'ao-tu-than') ||
-                (item.assignedGarmentId === 'ao-dai-hien-dai' &&
-                  currentGarmentId === 'ao-dai-hien-dai') ||
-                (item.assignedGarmentId === 'ao-nhat-binh' && currentGarmentId === 'ao-nhat-binh') ||
-                (item.assignedGarmentId === 'ao-ngu-than' &&
-                  (currentGarmentId === 'ngu-than-tay-chen' ||
-                    currentGarmentId === 'ao-tac-ngu-than-tay-thung'));
 
-              return (
-                <div
-                  key={item.id}
-                  className={`p-2.5 rounded-xs border transition-all text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
-                    isActive
-                      ? 'bg-white border-[#8B2626] shadow-xs ring-1 ring-[#8B2626]/20'
-                      : 'bg-white/80 hover:bg-white border-[#241E1C]/10'
-                  }`}
+          {accessoryModel ? (
+            <div className="p-2.5 bg-white rounded-xs border border-[#1B4D3E]/30 shadow-2xs flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-[#1B4D3E] shrink-0" />
+                <strong className="text-[#1B4D3E] truncate">{accessoryMeta?.title || accessoryModel.fileName}</strong>
+                <span className="text-[10px] text-stone-500 font-mono">({formatFileSize(accessoryModel.fileSizeBytes)})</span>
+                <span className={`text-[9px] px-1.5 py-0.2 rounded-xs font-medium ${isAccessoryVisible ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-100 text-stone-600'}`}>
+                  {isAccessoryVisible ? 'Đang hiện' : 'Đang ẩn'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsAccessoryVisible(!isAccessoryVisible)}
+                  className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xs text-[11px] font-medium cursor-pointer flex items-center gap-1"
                 >
-                  {/* Left: Model Name & Garment Association */}
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
-                          isActive
-                            ? 'bg-[#8B2626] animate-pulse'
-                            : matchesCurrentGarment
-                            ? 'bg-[#1B4D3E]'
-                            : 'bg-stone-300'
-                        }`}
-                      />
-                      <span className="font-semibold text-[#241E1C] truncate" title={item.fileName}>
+                  {isAccessoryVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <span>{isAccessoryVisible ? 'Ẩn' : 'Hiện'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAccessoryControls(!showAccessoryControls)}
+                  className="px-2 py-1 bg-[#1B4D3E]/10 hover:bg-[#1B4D3E]/20 text-[#1B4D3E] rounded-xs text-[11px] font-medium cursor-pointer flex items-center gap-1"
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>Chỉnh vị trí</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRemoveAccessory}
+                  className="p-1 text-stone-400 hover:text-red-700 hover:bg-red-50 rounded-xs transition-colors cursor-pointer"
+                  title="Gỡ quạt"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-2.5 bg-white/70 rounded-xs border border-dashed border-stone-300 flex items-center justify-between gap-2 text-xs">
+              <span className="text-stone-500">Chưa nạp tệp quạt fan-decorated.glb vào phiên.</span>
+              <button
+                type="button"
+                onClick={() => accessoryFileInputRef.current?.click()}
+                className="px-2.5 py-1 bg-[#1B4D3E] hover:bg-[#153e32] text-white rounded-xs text-[11px] font-medium cursor-pointer inline-flex items-center gap-1"
+              >
+                <Upload className="w-3 h-3" />
+                <span>Nạp quạt</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* SECTION: DANH SÁCH ÁO CHÍNH */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-semibold text-[#8B2626] flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5" />
+              <span>Mô hình áo chính ({loadedModels.length})</span>
+            </span>
+          </div>
+
+          {loadedModels.length === 0 ? (
+            <div className="p-3 bg-white rounded-xs border border-dashed border-[#241E1C]/20 text-center text-xs text-stone-500">
+              Chưa có mô hình áo nào được nạp vào phiên làm việc.
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {loadedModels.map((item) => {
+                const isActive = item.id === activeModelId;
+                const matchesCurrentGarment =
+                  (item.assignedGarmentId === 'ao-tu-than' && currentGarmentId === 'ao-tu-than') ||
+                  (item.assignedGarmentId === 'ao-dai-hien-dai' && currentGarmentId === 'ao-dai-hien-dai') ||
+                  (item.assignedGarmentId === 'ao-nhat-binh' && currentGarmentId === 'ao-nhat-binh') ||
+                  (item.assignedGarmentId === 'ao-ngu-than' &&
+                    (currentGarmentId === 'ngu-than-tay-chen' || currentGarmentId === 'ao-tac-ngu-than-tay-thung'));
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`p-2.5 rounded-xs border transition-all text-xs flex flex-wrap items-center justify-between gap-2 ${
+                      isActive
+                        ? 'bg-white border-[#8B2626] shadow-2xs ring-1 ring-[#8B2626]/20'
+                        : 'bg-white/80 hover:bg-white border-[#241E1C]/10'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-[#8B2626] animate-pulse' : matchesCurrentGarment ? 'bg-[#1B4D3E]' : 'bg-stone-300'}`} />
+                      <strong className="text-[#241E1C] truncate max-w-[150px] sm:max-w-[220px]" title={item.fileName}>
                         {item.matchedMeta?.title || item.fileName}
-                      </span>
-                      <span className="text-[10px] text-stone-500 font-mono">
-                        ({formatFileSize(item.fileSizeBytes)})
-                      </span>
+                      </strong>
+                      <span className="text-[10px] text-stone-500 font-mono">({formatFileSize(item.fileSizeBytes)})</span>
 
-                      {isActive && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-xs bg-[#8B2626] text-white font-semibold uppercase tracking-wider">
-                          Đang xem
-                        </span>
-                      )}
-
-                      {!isActive && matchesCurrentGarment && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-xs bg-[#1B4D3E]/10 text-[#1B4D3E] font-medium">
-                          Khớp áo Studio
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-stone-600 pl-4">
-                      <span>Tệp: <code className="text-[#8B2626]">{item.fileName}</code></span>
-                      <span>·</span>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 text-[10px] text-stone-600">
                         <span>Gắn dòng:</span>
                         <select
                           value={item.assignedGarmentId}
                           onChange={(e) => handleUpdateAssignedGarment(item.id, e.target.value)}
-                          className="bg-[#FAF7F2] border border-[#241E1C]/20 px-1.5 py-0.5 rounded-xs text-[10px] font-medium text-[#241E1C] focus:outline-none focus:border-[#8B2626]"
+                          className="bg-[#FAF7F2] border border-[#241E1C]/20 px-1 py-0.2 rounded-xs text-[10px] font-medium text-[#241E1C] focus:outline-none focus:border-[#8B2626]"
                         >
                           {GARMENTS_ASSIGNABLE_OPTIONS.map((opt) => (
                             <option key={opt.id} value={opt.id}>
@@ -1176,66 +1733,53 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
                           ))}
                         </select>
                       </div>
-
-                      {item.dimensions && (
-                        <>
-                          <span>·</span>
-                          <span className="text-stone-500 font-mono text-[9px]">
-                            KT: {item.dimensions.width}m × {item.dimensions.height}m ×{' '}
-                            {item.dimensions.depth}m
-                          </span>
-                        </>
-                      )}
                     </div>
-                  </div>
 
-                  {/* Right: Actions */}
-                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
-                    {!isActive ? (
+                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                      {!isActive ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (activeModelId !== item.id) {
+                              setActiveModelId(item.id);
+                            }
+                          }}
+                          className="px-2 py-1 bg-stone-100 hover:bg-[#8B2626] hover:text-white text-[#241E1C] rounded-xs font-medium text-[11px] transition-colors cursor-pointer flex items-center gap-1"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>Xem áo này</span>
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-[#8B2626] font-medium flex items-center gap-1 px-1.5 py-0.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Đang hiển thị</span>
+                        </span>
+                      )}
+
                       <button
                         type="button"
-                        onClick={() => {
-                          if (activeModelId !== item.id) {
-                            setActiveModelId(item.id);
-                          }
-                        }}
-                        className="px-2.5 py-1 bg-stone-100 hover:bg-[#8B2626] hover:text-white text-[#241E1C] rounded-xs font-medium text-[11px] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                        onClick={() => handleRemoveGarmentModel(item.id)}
+                        className="p-1 text-stone-400 hover:text-red-700 hover:bg-red-50 rounded-xs transition-colors cursor-pointer"
+                        title="Gỡ mô hình này"
                       >
-                        <Eye className="w-3 h-3" />
-                        <span>Xem mô hình</span>
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                    ) : (
-                      <span className="text-[11px] text-[#8B2626] font-medium flex items-center gap-1 px-2 py-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Hiển thị trên sân khấu</span>
-                      </span>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveModel(item.id)}
-                      className="p-1 text-stone-400 hover:text-red-700 hover:bg-red-50 rounded-xs transition-colors cursor-pointer"
-                      title="Gỡ mô hình này"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-        {/* Standardization & Bounding Box Notice */}
-        <div className="p-3 bg-white/90 rounded-xs border border-[#241E1C]/10 text-[10px] text-stone-600 space-y-1">
+        {/* Notice */}
+        <div className="p-2.5 bg-white/90 rounded-xs border border-[#241E1C]/10 text-[10px] text-stone-600 space-y-0.5">
           <div className="flex items-center gap-1.5 font-semibold text-[#8B2626]">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Chuẩn hoá mô hình & Khung nhìn</span>
+            <span>Đồng bộ tọa độ & Khung nhìn</span>
           </div>
           <p className="leading-relaxed">
-            Mỗi mô hình được giải mã độc lập, tự động căn tâm hình học về tọa độ <strong>(0, 0, 0)</strong> và camera
-            tự điều chỉnh khoảng cách theo bounding box riêng. Hiện <strong>chưa ghép nối lên mannequin chung</strong> để
-            tránh sai lệch tỉ lệ và xung đột trục tọa độ giữa các nguồn tài nguyên 3D khác nhau.
+            Vị trí quạt được tính toán tự động dựa trên tọa độ biên (Bounding Box) ống tay áo phải và điều chỉnh độc lập qua sliders. Các thao tác di chuyển, đổi góc xoay hoặc ẩn/hiện quạt <strong>hoàn toàn không kích hoạt nạp lại mô hình áo</strong>.
           </p>
         </div>
       </div>

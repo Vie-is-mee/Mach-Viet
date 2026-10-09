@@ -15,6 +15,7 @@ export interface SampleModelMeta {
   license: string;
   attribution: string;
   cautionNotice: string;
+  modelKind?: 'garment' | 'accessory'; // Phân biệt áo chính hay phụ kiện
 }
 
 export interface SessionModelRecord {
@@ -27,6 +28,7 @@ export interface SessionModelRecord {
   matchedMeta: SampleModelMeta | null;
   uploadedAt: string;
   dimensions?: { width: number; height: number; depth: number };
+  modelKind?: 'garment' | 'accessory';
 }
 
 export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
@@ -41,6 +43,7 @@ export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
     license: 'CC BY 4.0',
     attribution: 'Tác giả ghostnoface trên Sketchfab (Giấy phép CC BY 4.0)',
     cautionNotice: 'Mô hình minh họa 3D, chưa được thẩm định phục dựng bảo tàng.',
+    modelKind: 'garment',
   },
   'ao-dai-blue.glb': {
     filename: 'ao-dai-blue.glb',
@@ -53,6 +56,7 @@ export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
     license: 'CC BY 4.0',
     attribution: 'Tác giả ghostnoface trên Sketchfab (Giấy phép CC BY 4.0)',
     cautionNotice: 'Mô hình minh họa 3D, chưa được thẩm định phục dựng bảo tàng.',
+    modelKind: 'garment',
   },
   'nhat-binh.glb': {
     filename: 'nhat-binh.glb',
@@ -65,6 +69,20 @@ export const SAMPLE_MODELS_REGISTRY: Record<string, SampleModelMeta> = {
     license: 'CC BY 4.0',
     attribution: 'Tác giả ghostnoface trên Sketchfab (Giấy phép CC BY 4.0)',
     cautionNotice: 'Mô hình minh họa 3D, chưa được thẩm định phục dựng bảo tàng.',
+    modelKind: 'garment',
+  },
+  'fan-decorated.glb': {
+    filename: 'fan-decorated.glb',
+    matchedGarmentId: 'quat_tram',
+    matchedCategory: 'phu_kien_cam_tay',
+    title: 'Quạt Cầm Tay Gấp (Folding Fan)',
+    description: 'Mô hình 3D quạt gấp có nan hoa văn trang trí, phối hợp làm phụ kiện cầm tay truyền thống cho Việt phục.',
+    author: 'staceyneko0415 trên Sketchfab',
+    sourceUrl: 'https://sketchfab.com/3d-models/folding-fan-a0ece787e7fd431a9dd42b142bb87f45',
+    license: 'CC BY 4.0',
+    attribution: 'Tác giả staceyneko0415 trên Sketchfab (Giấy phép CC BY 4.0)',
+    cautionNotice: 'Mô hình minh họa phụ kiện 3D, độc lập với trang phục và chưa gắn khung xương nhân vật.',
+    modelKind: 'accessory',
   },
 };
 
@@ -135,22 +153,25 @@ export function matchUploadedModelMeta(fileName: string): SampleModelMeta | null
 }
 
 /**
- * Tự động nhận diện dòng y phục mặc định dựa theo tên tệp tải lên
+ * Tự động nhận diện dòng y phục mặc định hoặc phụ kiện dựa theo tên tệp tải lên
  */
-export function detectGarmentFromFilename(fileName: string): { garmentId: string; label: string } {
+export function detectGarmentFromFilename(fileName: string): { garmentId: string; label: string; kind: 'garment' | 'accessory' } {
   const norm = fileName.toLowerCase().replace(/[-_]/g, ' ');
+  if (norm.includes('fan') || norm.includes('quat') || norm.includes('quạt')) {
+    return { garmentId: 'quat_tram', label: 'Quạt Cầm Tay (Phụ kiện)', kind: 'accessory' };
+  }
   if (norm.includes('tu than') || norm.includes('tu-than') || norm.includes('tứ thân')) {
-    return { garmentId: 'ao-tu-than', label: 'Áo Tứ Thân' };
+    return { garmentId: 'ao-tu-than', label: 'Áo Tứ Thân', kind: 'garment' };
   }
   if (norm.includes('ao dai') || norm.includes('ao-dai') || norm.includes('áo dài')) {
-    return { garmentId: 'ao-dai-hien-dai', label: 'Áo Dài' };
+    return { garmentId: 'ao-dai-hien-dai', label: 'Áo Dài', kind: 'garment' };
   }
   if (norm.includes('nhat binh') || norm.includes('nhat-binh') || norm.includes('nhật bình')) {
-    return { garmentId: 'ao-nhat-binh', label: 'Áo Nhật Bình' };
+    return { garmentId: 'ao-nhat-binh', label: 'Áo Nhật Bình', kind: 'garment' };
   }
   if (norm.includes('ngu than') || norm.includes('ngu-than') || norm.includes('ngũ thân')) {
-    return { garmentId: 'ao-ngu-than', label: 'Áo Ngũ Thân' };
+    return { garmentId: 'ao-ngu-than', label: 'Áo Ngũ Thân', kind: 'garment' };
   }
-  return { garmentId: 'custom_other', label: 'Dòng y phục khác / Tự do' };
+  return { garmentId: 'custom_other', label: 'Dòng y phục khác / Tự do', kind: 'garment' };
 }
 
