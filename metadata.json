@@ -1,0 +1,6 @@
+{
+  "name": "Mạch Việt - Khám Phá & Phối Việt Phục Trẻ",
+  "description": "Nền tảng khám phá cấu trúc và định hình phong cách phối Việt phục đương đại dành cho học sinh, sinh viên và người trẻ.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

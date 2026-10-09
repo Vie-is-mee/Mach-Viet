@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-sans: 'Be Vietnam Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #FAF7F2;
+    color: #241E1C;
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Custom smooth transitions & subtle borders */
+.heritage-border {
+  border: 1px solid rgba(139, 38, 38, 0.15);
+}
+
+.heritage-border-subtle {
+  border: 1px solid rgba(36, 30, 28, 0.08);
+}
+
