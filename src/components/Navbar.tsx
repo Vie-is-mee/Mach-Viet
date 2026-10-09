@@ -5,9 +5,16 @@ import { Sparkles, Compass, Palette, BookOpen, Layers, Menu, X } from 'lucide-re
 interface NavbarProps {
   activeTab: NavigationTab;
   onSelectTab: (tab: NavigationTab) => void;
+  onOpenPreferenceWizard?: () => void;
+  hasPreferenceProfile?: boolean;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
+export const Navbar: React.FC<NavbarProps> = ({ 
+  activeTab, 
+  onSelectTab, 
+  onOpenPreferenceWizard,
+  hasPreferenceProfile 
+}) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
 
   const navItems: { id: NavigationTab; label: string; icon: React.ReactNode }[] = [
@@ -23,6 +30,15 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
     setMobileMenuOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  const handlePrimaryAction = () => {
+    if (!hasPreferenceProfile && onOpenPreferenceWizard) {
+      onOpenPreferenceWizard();
+    } else {
+      handleSelect('studio');
+    }
+  };
+
 
   return (
     <>
@@ -68,7 +84,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
           {/* Zone 3: Primary Action & Mobile Menu Toggle */}
           <div className="flex items-center gap-3 shrink-0">
             <button
-              onClick={() => handleSelect('studio')}
+              onClick={handlePrimaryAction}
               className="hidden sm:inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-[#FAF7F2] bg-[#8B2626] hover:bg-[#741E1E] active:scale-[0.98] transition-all rounded-sm shadow-xs cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
             >
               Bắt đầu phối
@@ -104,10 +120,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onSelectTab }) => {
             ))}
             <div className="pt-2">
               <button
-                onClick={() => handleSelect('studio')}
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  handlePrimaryAction();
+                }}
                 className="w-full py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-[#FAF7F2] bg-[#8B2626] rounded-sm cursor-pointer"
               >
-                Vào Studio Phối Đồ
+                Bắt đầu phối đồ (5 bước)
               </button>
             </div>
           </div>

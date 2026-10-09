@@ -1,14 +1,21 @@
 import React from 'react';
 import { NavigationTab } from '../types';
 import { HERO_ASSETS, GARMENTS_DATA } from '../data/mockData';
-import { ArrowRight, Compass, Palette, BookOpen, Sparkles, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, Compass, Palette, BookOpen, Sparkles, CheckCircle2, UserCheck } from 'lucide-react';
 
 interface HeroHomeProps {
   onNavigate: (tab: NavigationTab) => void;
   onSelectGarment: (garmentId: string) => void;
+  onOpenPreferenceWizard?: () => void;
+  hasPreferenceProfile?: boolean;
 }
 
-export const HeroHome: React.FC<HeroHomeProps> = ({ onNavigate, onSelectGarment }) => {
+export const HeroHome: React.FC<HeroHomeProps> = ({ 
+  onNavigate, 
+  onSelectGarment,
+  onOpenPreferenceWizard,
+  hasPreferenceProfile
+}) => {
   const featuredGarments = GARMENTS_DATA.slice(0, 3);
 
   return (
@@ -39,21 +46,31 @@ export const HeroHome: React.FC<HeroHomeProps> = ({ onNavigate, onSelectGarment 
               </p>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-4 pt-2">
+              <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   onClick={() => onNavigate('explore')}
-                  className="px-6 py-3.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-sm font-semibold tracking-wide rounded-sm shadow-sm transition-all flex items-center gap-2 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
+                  className="px-5 py-3 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs sm:text-sm font-semibold tracking-wide rounded-sm shadow-sm transition-all flex items-center gap-2 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
                 >
                   <span>Bắt đầu khám phá</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </button>
 
+                {onOpenPreferenceWizard && (
+                  <button
+                    onClick={onOpenPreferenceWizard}
+                    className="px-5 py-3 bg-white hover:bg-[#FAF7F2] text-[#8B2626] border border-[#8B2626]/40 hover:border-[#8B2626] text-xs sm:text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-2 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
+                  >
+                    <UserCheck className="w-4 h-4 text-[#8B2626]" />
+                    <span>{hasPreferenceProfile ? 'Xem / Chỉnh hồ sơ (5 bước)' : 'Tạo hồ sơ sở thích (5 bước)'}</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => onNavigate('studio')}
-                  className="px-6 py-3.5 bg-transparent hover:bg-[#8B2626]/5 text-[#8B2626] border border-[#8B2626]/40 hover:border-[#8B2626] text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-2 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
+                  className="px-4 py-3 bg-transparent hover:bg-[#241E1C]/5 text-[#241E1C]/75 hover:text-[#241E1C] text-xs sm:text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <Palette className="w-4 h-4" />
-                  <span>Xem khung Studio</span>
+                  <span>Vào Studio</span>
                 </button>
               </div>
 
