@@ -1,5 +1,6 @@
 import { PreferenceProfile } from '../types';
-import { GARMENTS_DATA, STUDIO_COLOR_PRESETS } from '../data/mockData';
+import { STUDIO_COLOR_PRESETS } from '../data/mockData';
+import { GARMENT_COMPATIBILITY_RULES, checkLayerCompatibility } from '../data/layerCompatibilityRules';
 
 export interface StudioAppliedResult {
   garmentId?: string;
@@ -18,9 +19,10 @@ export interface StudioAppliedResult {
 /**
  * Ánh xạ an toàn từ Hồ sơ sở thích sang cấu hình Studio
  * Xử lý chặt chẽ:
+ * - Tuân thủ quy tắc tương thích các lớp y phục
  * - Tránh trùng màu bị né
  * - Giữ lựa chọn an toàn nếu chọn 'undecided'
- * - Ưu tiên Áo tứ thân với yếm đào / váy phù hợp
+ * - Áo tứ thân phối Yếm đào và Váy đụp/quần đen chuẩn dân gian Bắc Bộ
  * - Báo cáo rõ ràng những gì áp dụng được và chưa hỗ trợ
  */
 export function mapPreferenceToStudio(
@@ -33,48 +35,53 @@ export function mapPreferenceToStudio(
     noticeMessages: [],
   };
 
-  // 1. Ánh xạ loại áo
+  // 1. Ánh xạ loại áo chính
+  let targetGarmentId: string | undefined = undefined;
+
   if (profile.garmentChoice === 'undecided') {
     result.noticeMessages.push(
       'Hồ sơ của bạn chọn "Chưa biết chọn loại nào": Giữ nguyên y phục hiện tại trên bàn phối.'
     );
+    targetGarmentId = currentGarmentId;
   } else if (profile.garmentChoice === 'ao_dai') {
-    result.garmentId = 'ao-dai-hien-dai';
-    result.garmentName = 'Áo Dài Hiện Đại (Tân Thời)';
-    result.innerLayer = 'ao-lot-trang';
-    result.bottomLayer = 'quan-lua-trang';
-    result.successMessages.push('Đã áp dụng: Áo Dài Hiện Đại & Quần lụa trắng');
+    targetGarmentId = 'ao-dai-hien-dai';
   } else if (profile.garmentChoice === 'ao_tu_than') {
-    result.garmentId = 'ao-tu-than';
-    result.garmentName = 'Áo Tứ Thân';
-    result.innerLayer = 'yem-dao'; // Chuẩn văn hóa Bắc Bộ: Tứ thân phối yếm đào
-    result.bottomLayer = 'quan-den'; // Mặc cùng quần đen hoặc váy xúp
-    result.successMessages.push('Đã áp dụng: Áo Tứ Thân phối Yếm lụa đào');
+    targetGarmentId = 'ao-tu-than';
   } else if (profile.garmentChoice === 'ao_ngu_than') {
     if (profile.subGarmentVariantId === 'ao-tac-ngu-than-tay-thung') {
-      result.garmentId = 'ao-tac-ngu-than-tay-thung';
-      result.garmentName = 'Áo Tấc (Ngũ Thân Tay Thụng)';
-      result.innerLayer = 'ao-lot-trang';
-      result.bottomLayer = 'quan-lua-trang';
-      result.successMessages.push('Đã áp dụng: Áo Tấc tay thụng (Lễ phục)');
+      targetGarmentId = 'ao-tac-ngu-than-tay-thung';
     } else {
-      result.garmentId = 'ngu-than-tay-chen';
-      result.garmentName = 'Áo Ngũ Thân Tay Chẽn';
-      result.innerLayer = 'ao-lot-trang';
-      result.bottomLayer = 'quan-lua-trang';
-      result.successMessages.push('Đã áp dụng: Áo Ngũ Thân Tay Chẽn');
+      targetGarmentId = 'ngu-than-tay-chen';
     }
   } else if (profile.garmentChoice === 'ao_nhat_binh') {
-    result.garmentId = 'ao-nhat-binh';
-    result.garmentName = 'Áo Nhật Bình';
-    result.innerLayer = 'ao-lot-trang';
-    result.bottomLayer = 'quan-lua-trang';
-    result.successMessages.push('Đã áp dụng: Áo Nhật Bình hoàng cung');
+    targetGarmentId = 'ao-nhat-binh';
+  }
+
+  if (targetGarmentId && profile.garmentChoice !== 'undecided') {
+    const rule = GARMENT_COMPATIBILITY_RULES[targetGarmentId];
+    if (rule) {
+      result.garmentId = targetGarmentId;
+      result.garmentName = rule.garmentName;
+      result.innerLayer = rule.defaultLayers.innerLayer;
+      result.bottomLayer = rule.defaultLayers.bottomLayer;
+      result.successMessages.push(`Đã áp dụng: ${rule.garmentName}`);
+      result.successMessages.push(
+        `Lớp phối mặc định tương thích: ${
+          result.innerLayer === 'yem-dao' ? 'Yếm lụa đào' : 'Áo lót trắng cổ đứng'
+        } & ${
+          result.bottomLayer === 'vay-xep-ly'
+            ? 'Váy đụp / xòe'
+            : result.bottomLayer === 'quan-den'
+            ? 'Quần đen'
+            : 'Quần lụa trắng'
+        }`
+      );
+    }
   }
 
   // 2. Ánh xạ màu sắc (Tuyệt đối không lấy màu trong avoidedColors)
   const validLikedColor = profile.likedColors.find((hex) => {
-    const isAvoided = profile.avoidedColors.includes(hex);
+    const isAvoided = profile.avoidedColors.some((av) => av.toLowerCase() === hex.toLowerCase());
     const existsInStudio = STUDIO_COLOR_PRESETS.some((c) => c.hex.toLowerCase() === hex.toLowerCase());
     return !isAvoided && existsInStudio;
   });
@@ -108,12 +115,20 @@ export function mapPreferenceToStudio(
     result.occasionGoal = 'cuoi_hoi';
   }
 
-  // 4. Ánh xạ phụ kiện được Studio hỗ trợ
+  // 4. Ánh xạ phụ kiện được Studio hỗ trợ và kiểm tra tương thích với áo mục tiêu
+  const activeGarmentForAccessory = result.garmentId || currentGarmentId;
+
   // A. Khăn đội đầu
   if (profile.culturalBoundaries.some((b) => b.includes('Không đội khăn'))) {
     result.accessoryHead = 'none';
   } else if (profile.accessories.includes('Khăn đóng xếp nếp')) {
-    result.accessoryHead = 'khan-dong';
+    const compat = checkLayerCompatibility(activeGarmentForAccessory, 'accessoryHead', 'khan-dong');
+    if (compat.isCompatible) {
+      result.accessoryHead = 'khan-dong';
+    } else {
+      result.accessoryHead = 'khan-van';
+      result.noticeMessages.push(`Khăn đóng xếp nếp không phù hợp với ${result.garmentName || 'áo đã chọn'} -> Đã tự điều chỉnh sang Khăn vấn lụa.`);
+    }
   } else if (profile.accessories.includes('Khăn vấn lụa')) {
     result.accessoryHead = 'khan-van';
   }

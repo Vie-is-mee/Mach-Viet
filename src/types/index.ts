@@ -8,6 +8,35 @@ export type GarmentCategory =
   | 'ao_nhat_binh' 
   | 'ao_tu_than';
 
+export type InnerLayerId = 'ao-lot-trang' | 'yem-dao';
+export type BottomLayerId = 'quan-lua-trang' | 'quan-den' | 'vay-xep-ly';
+export type AccessoryHeadId = 'khan-dong' | 'khan-van' | 'none';
+export type AccessoryHandId = 'quat-nan' | 'tui-gam' | 'none';
+
+export interface LayerItemMeta<T extends string = string> {
+  id: T;
+  name: string;
+  subName: string;
+  description: string;
+}
+
+export interface StudioOutfitState {
+  garmentId: string;
+  innerLayer: InnerLayerId;
+  bottomLayer: BottomLayerId;
+  selectedColor: string;
+  accessoryHead: AccessoryHeadId;
+  accessoryHand: AccessoryHandId;
+  occasionGoal: string;
+}
+
+export interface LayerCompatibilityEntry {
+  isCompatible: boolean;
+  isRecommended?: boolean;
+  reason: string;
+  verificationLevel: 'verified_convention' | 'experimental_suggestion' | 'not_recommended';
+}
+
 export type PreferredGarmentChoice = GarmentCategory | 'undecided';
 
 export type StyleOrientation = 
