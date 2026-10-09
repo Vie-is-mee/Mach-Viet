@@ -18,6 +18,7 @@ import {
   StudioOutfitState,
   normalizeGarmentChoice,
 } from '../types';
+import { GlbModelViewer } from './GlbModelViewer';
 import { mapPreferenceToStudio, StudioAppliedResult } from '../utils/preferenceMapper';
 import {
   Layers,
@@ -958,59 +959,12 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </div>
           </div>
 
-          {/* Visual Mannequin Staging Area */}
-          <div className="relative aspect-[3/4] bg-[#F7F4EE] rounded-sm border border-[#241E1C]/10 flex flex-col items-center justify-between p-6 overflow-hidden">
-            <div className="w-full h-full flex flex-col items-center justify-center text-center space-y-4 relative z-10">
-              
-              {/* Head accessory display */}
-              <div className="w-24 h-10 border border-[#241E1C]/20 rounded-full flex items-center justify-center bg-white/80 shadow-xs text-[10px] text-[#241E1C]/80 font-medium px-2">
-                {accessoryHead === 'khan-dong' ? 'Khăn đóng xếp nếp' : accessoryHead === 'khan-van' ? 'Khăn vấn tóc lụa' : 'Để tóc tự nhiên'}
-              </div>
-
-              {/* Garment Silhouette Body */}
-              <div 
-                className="w-48 sm:w-56 h-56 rounded-t-xl border border-black/15 shadow-sm transition-colors duration-300 flex flex-col items-center justify-between p-3 relative text-white"
-                style={{ backgroundColor: selectedColor }}
-              >
-                {/* Specific Collar indicator */}
-                <div className="w-24 h-6 border-b border-white/40 bg-white/20 rounded-b-md flex items-center justify-center text-[9px] uppercase tracking-wider font-semibold">
-                  {currentGarment.category === 'ao_tu_than' ? 'Cổ yếm trong' :
-                   currentGarment.category === 'ao_nhat_binh' ? 'Nẹp Nhật Bình' :
-                   currentGarment.category === 'ao_dai' ? 'Cổ đứng tân thời' : 'Cổ lập lĩnh'}
-                </div>
-
-                {/* Chest & construction details */}
-                <div className="text-center space-y-1">
-                  <div className="text-xs font-serif font-medium">{currentGarment.name}</div>
-                  <div className="text-[10px] opacity-85">
-                    {currentGarment.category === 'ao_tu_than' ? '4 Vạt buông rủ · Thắt lưng lụa' :
-                     currentGarment.category === 'ao_nhat_binh' ? 'Xẻ trước · Dải ngũ hành tay' :
-                     currentGarment.category === 'ao_dai' ? 'Hai tà dài buông thả' :
-                     currentGarment.id === 'ao-tac-ngu-than-tay-thung' ? 'Tay thụng rộng · Cúc hữu nhậm' : 'Tay chẽn gọn · Cúc hữu nhậm'}
-                  </div>
-                </div>
-
-                {/* Hand accessory preview */}
-                <div className="text-[10px] bg-black/30 px-2.5 py-0.5 rounded-xs">
-                  {accessoryHand === 'quat-nan' ? 'Cầm quạt nan thêu' : accessoryHand === 'tui-gam' ? 'Túi gấm đeo' : 'Để tay tự nhiên'}
-                </div>
-              </div>
-
-              {/* Bottom Pants/Skirt representation */}
-              <div className={`w-36 h-20 rounded-b-md border border-black/10 flex items-center justify-center text-[10px] font-medium ${
-                bottomLayer === 'quan-lua-trang' ? 'bg-[#FAF7F2] text-[#241E1C]' :
-                bottomLayer === 'quan-den' ? 'bg-[#1C1917] text-[#FAF7F2]' : 'bg-[#3D2E28] text-[#FAF7F2]'
-              }`}>
-                {bottomLayer === 'quan-lua-trang' ? 'Quần lụa trắng' :
-                 bottomLayer === 'quan-den' ? 'Quần lụa đen' : 'Váy đụp / xòe'}
-              </div>
-            </div>
-
-            {/* Status watermark */}
-            <div className="absolute bottom-2 left-2 right-2 bg-white/90 backdrop-blur-xs p-2 text-center rounded-xs border border-[#241E1C]/10 text-[10px] text-[#241E1C]/75">
-              <span>Bàn dựng trực quan kiểm soát tương thích · Không gian 3D sẽ tích hợp ở Giai đoạn 2</span>
-            </div>
-          </div>
+          {/* Real GLB 3D Model Viewer Staging Area */}
+          <GlbModelViewer
+            currentGarmentId={selectedGarmentId}
+            currentGarmentName={currentGarment.name}
+            onSyncGarment={handleSelectGarmentWithCompatibility}
+          />
         </div>
 
         {/* Right Column: Đánh giá dịp & Đề xuất quy cách (3 cols) */}
