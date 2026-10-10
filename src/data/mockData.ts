@@ -1,11 +1,17 @@
 import { GarmentItem, LookbookCard, CulturalArticle, ColorPresetItem, GarmentCategoryMeta } from '../types';
+import heroBannerImage from '../assets/images/mach_viet_hero_1791549541458.jpg';
+import aoNguThanImage from '../assets/images/ao_ngu_than_exhibit_1791549551532.jpg';
+import aoNhatBinhImage from '../assets/images/ao_nhat_binh_exhibit_1791549562498.jpg';
+import aoTacImage from '../assets/images/ao_tac_exhibit.jpg';
+import aoTuThanImage from '../assets/images/ao_tu_than_exhibit.svg';
+
 
 export const HERO_ASSETS = {
-  heroBanner: '/src/assets/images/mach_viet_hero_1791549541458.jpg',
-  aoNguThan: '/src/assets/images/ao_ngu_than_exhibit_1791549551532.jpg',
-  aoNhatBinh: '/src/assets/images/ao_nhat_binh_exhibit_1791549562498.jpg',
-  aoTac: '/src/assets/images/ao_tac_exhibit.jpg',
-  aoTuThan: '/src/assets/images/ao_tu_than_exhibit.svg',
+  heroBanner: heroBannerImage,
+  aoNguThan: aoNguThanImage,
+  aoNhatBinh: aoNhatBinhImage,
+  aoTac: aoTacImage,
+  aoTuThan: aoTuThanImage,
 };
 
 export const STUDIO_COLOR_PRESETS: ColorPresetItem[] = [
