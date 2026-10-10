@@ -28,6 +28,10 @@ import {
   Sliders,
   Grid,
   EyeOff,
+  Crosshair,
+  Save,
+  Plus,
+  Minus,
 } from 'lucide-react';
 import {
   matchUploadedModelMeta,
@@ -50,6 +54,301 @@ export interface GlbModelViewerProps {
 type ViewerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB limit
+
+// Cấu trúc dữ liệu điểm neo ống tay cho phụ kiện cầm tay
+export interface SleeveAnchorData {
+  x: number;
+  y: number;
+  z: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  scale: number;
+}
+
+// Cấu hình tọa độ & hướng xoay CHUYÊN BIỆT cho từng cặp áo với quạt (fan-decorated.glb)
+// Khắc phục triệt để lỗi quạt bị áo đè lên hay chui vào trong ống tay:
+// - Đặt sẵn tọa độ riêng biệt, không tính gộp chung hay suy đoán sai lệch.
+// - Đẩy quạt ra phía trước theo trục Z (~6-7cm ngoài mặt vải) giống như bàn tay thật đang cầm quạt.
+// - Xoay ngửa nhẹ theo trục Pitch X để nan quạt vươn ra ngoài, không cắm vào thân áo.
+export const DEDICATED_GARMENT_FAN_CONFIGS: Record<string, SleeveAnchorData> = {
+  // 1. Áo Tứ Thân (tu-than-color.glb) x Quạt (fan-decorated.glb)
+  // Tọa độ và góc xoay căn chỉnh chuyên biệt mới:
+  // - Hướng quạt: Giữ nguyên hướng quạt chuẩn (đầu quạt chúc xuống dưới và rủ chéo sang phải):
+  //   + rotZ = -138°: Đầu quạt chúc xuống phía dưới (-Y) và rủ chéo sang bên phải (+X), tạo cảm giác cầm quạt rũ tự nhiên ở tay phải.
+  //   + rotY = -12°: Mở mặt nan quạt hướng nhẹ ra phía người xem, nhìn rõ hoa văn từ cả góc chính diện lẫn nghiêng.
+  //   + rotX = 8°: Ngửa nhẹ 8° về trước để nan quạt vươn ra ngoài, hoàn toàn không đâm vào vạt áo tứ thân.
+  // - Vị trí: Dịch lên trên vừa khít mép tay áo phải (X: 0.43m, Y: 0.19m):
+  //   + X = 0.43: Căn đúng tâm miệng ống tay áo phải (+1cm).
+  //   + Y = 0.19: Dịch lên trên thêm ~3cm (từ 0.16 -> 0.19) để chuôi quạt áp sát miệng tay áo.
+  //   + Z = 0.00: Giữ nguyên độ sâu tiếp xúc tự nhiên với tay áo.
+  //   + scale = 0.90: Tỉ lệ vừa vặn, thanh thoát.
+  'ao-tu-than': {
+    x: 0.43,
+    y: 0.19,
+    z: 0.00,
+    rotX: 8,
+    rotY: -12,
+    rotZ: -138,
+    scale: 0.90,
+  },
+
+  // 2. Áo Dài hiện đại (ao-dai-blue.glb) x Quạt (fan-decorated.glb)
+  'ao-dai-hien-dai': {
+    x: 0.32,
+    y: 0.10,
+    z: 0.05,
+    rotX: 8,
+    rotY: -12,
+    rotZ: -135,
+    scale: 0.90,
+  },
+
+  // 3. Áo Nhật Bình (nhat-binh.glb) x Quạt (fan-decorated.glb)
+  'ao-nhat-binh': {
+    x: 0.38,
+    y: 0.10,
+    z: 0.06,
+    rotX: 8,
+    rotY: -14,
+    rotZ: -136,
+    scale: 0.90,
+  },
+
+  // 4. Áo Ngũ Thân
+  'ao-ngu-than': {
+    x: 0.33,
+    y: 0.10,
+    z: 0.05,
+    rotX: 8,
+    rotY: -12,
+    rotZ: -136,
+    scale: 0.90,
+  },
+};
+
+export const CALIBRATED_AO_TU_THAN_ANCHOR = DEDICATED_GARMENT_FAN_CONFIGS['ao-tu-than'];
+export const DEFAULT_AO_DAI_ANCHOR = DEDICATED_GARMENT_FAN_CONFIGS['ao-dai-hien-dai'];
+export const DEFAULT_AO_NHAT_BINH_ANCHOR = DEDICATED_GARMENT_FAN_CONFIGS['ao-nhat-binh'];
+
+const SLEEVE_ANCHOR_STORAGE_PREFIX = 'mach_viet_fan_pos_v13_';
+
+export function getGarmentDefaultAnchor(garmentId: string): SleeveAnchorData {
+  if (garmentId === 'ao-tu-than' || garmentId.includes('tu-than')) {
+    return { ...DEDICATED_GARMENT_FAN_CONFIGS['ao-tu-than'] };
+  }
+  if (garmentId === 'ao-nhat-binh' || garmentId.includes('nhat-binh')) {
+    return { ...DEDICATED_GARMENT_FAN_CONFIGS['ao-nhat-binh'] };
+  }
+  if (garmentId === 'ao-dai-hien-dai' || garmentId.includes('ao-dai')) {
+    return { ...DEDICATED_GARMENT_FAN_CONFIGS['ao-dai-hien-dai'] };
+  }
+  if (garmentId.includes('ngu-than')) {
+    return { ...DEDICATED_GARMENT_FAN_CONFIGS['ao-ngu-than'] };
+  }
+  return { ...DEDICATED_GARMENT_FAN_CONFIGS['ao-tu-than'] };
+}
+
+// Lưu trữ và phục hồi điểm neo theo phiên làm việc riêng cho từng áo (Session Persistence)
+export function getSessionAnchor(garmentKey: string): SleeveAnchorData | null {
+  try {
+    const raw = sessionStorage.getItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${garmentKey}`) ||
+                localStorage.getItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${garmentKey}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number' && typeof parsed.z === 'number') {
+        return parsed as SleeveAnchorData;
+      }
+    }
+  } catch (e) {
+    console.warn('Lỗi đọc điểm neo từ session:', e);
+  }
+  return null;
+}
+
+export function saveSessionAnchor(garmentKey: string, data: SleeveAnchorData) {
+  try {
+    const serialized = JSON.stringify(data);
+    sessionStorage.setItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${garmentKey}`, serialized);
+    localStorage.setItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${garmentKey}`, serialized);
+  } catch (e) {
+    console.warn('Lỗi lưu điểm neo vào session:', e);
+  }
+}
+
+// -------------------------------------------------------------
+// USER SAVED PRESET STORAGE (Lưu vĩnh viễn vị trí mặc định cho từng cặp model)
+// -------------------------------------------------------------
+const USER_SAVED_PRESET_PREFIX = 'mach_viet_user_saved_fan_preset_v13_';
+
+export interface UserSavedFanPreset extends SleeveAnchorData {
+  savedAt: string;
+  garmentLabel: string;
+  pairKey: string;
+}
+
+export function getModelPairKey(garmentFileName?: string, garmentId?: string, accessoryFileName?: string): string {
+  const gName = (garmentFileName || '').toLowerCase();
+  const aName = (accessoryFileName || '').toLowerCase();
+
+  if (gName.includes('tu-than') || garmentId === 'ao-tu-than' || garmentId?.includes('tu-than')) {
+    return 'ao_tu_than_fan';
+  }
+  if (gName.includes('ao-dai') || garmentId === 'ao-dai-hien-dai' || garmentId?.includes('ao-dai')) {
+    return 'ao_dai_fan';
+  }
+  if (gName.includes('nhat-binh') || garmentId === 'ao-nhat-binh' || garmentId?.includes('nhat-binh')) {
+    return 'ao_nhat_binh_fan';
+  }
+  if (garmentId?.includes('ngu-than')) {
+    return 'ao_ngu_than_fan';
+  }
+  const cleanG = (garmentFileName || garmentId || 'garment').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const cleanA = (accessoryFileName || 'fan').replace(/[^a-zA-Z0-9_-]/g, '_');
+  return `${cleanG}__${cleanA}`;
+}
+
+export function getUserSavedPreset(pairKey: string): UserSavedFanPreset | null {
+  try {
+    const raw = localStorage.getItem(`${USER_SAVED_PRESET_PREFIX}${pairKey}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (typeof parsed.x === 'number' && typeof parsed.y === 'number' && typeof parsed.z === 'number') {
+        return parsed as UserSavedFanPreset;
+      }
+    }
+  } catch (e) {
+    console.warn('Lỗi đọc user saved preset:', e);
+  }
+  return null;
+}
+
+export function saveUserCustomPreset(pairKey: string, data: SleeveAnchorData, garmentLabel: string) {
+  try {
+    const payload: UserSavedFanPreset = {
+      ...data,
+      savedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      garmentLabel,
+      pairKey,
+    };
+    localStorage.setItem(`${USER_SAVED_PRESET_PREFIX}${pairKey}`, JSON.stringify(payload));
+    saveSessionAnchor(pairKey, data);
+  } catch (e) {
+    console.warn('Lỗi lưu user custom preset:', e);
+  }
+}
+
+export function deleteUserCustomPreset(pairKey: string) {
+  try {
+    localStorage.removeItem(`${USER_SAVED_PRESET_PREFIX}${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v12_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v11_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v10_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v9_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v8_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v7_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v6_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_v5_${pairKey}`);
+    localStorage.removeItem(`mach_viet_user_saved_fan_preset_${pairKey}`);
+    sessionStorage.removeItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${pairKey}`);
+    localStorage.removeItem(`${SLEEVE_ANCHOR_STORAGE_PREFIX}${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v12_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v12_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v11_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v11_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v10_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v10_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v9_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v9_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v8_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v8_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v7_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v7_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v6_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v6_${pairKey}`);
+    sessionStorage.removeItem(`mach_viet_fan_pos_v5_${pairKey}`);
+    localStorage.removeItem(`mach_viet_fan_pos_v5_${pairKey}`);
+  } catch (e) {
+    console.warn('Lỗi xóa user custom preset:', e);
+  }
+}
+
+// Thuật toán quét cấu trúc đỉnh (vertex sampling) hoặc bone node để tìm vị trí mép ngoài ống tay phải
+function detectRightSleeveEnd(model: THREE.Group): { x: number; y: number; z: number } | null {
+  // 1. Quét tìm bone node hoặc dummy object nếu tệp GLB có cấu trúc rig/armature
+  const foundBone: { pos?: THREE.Vector3 } = {};
+  const sleeveKeywords = ['hand_r', 'righthand', 'hand.r', 'wrist_r', 'wrist.r', 'forearm_r', 'sleeve_r', 'cuff_r'];
+  
+  model.traverse((child) => {
+    if (foundBone.pos) return;
+    const name = child.name.toLowerCase();
+    if (sleeveKeywords.some((kw) => name.includes(kw))) {
+      const wp = new THREE.Vector3();
+      child.getWorldPosition(wp);
+      foundBone.pos = wp;
+    }
+  });
+
+  if (foundBone.pos) {
+    return {
+      x: Number(foundBone.pos.x.toFixed(2)),
+      y: Number(foundBone.pos.y.toFixed(2)),
+      z: Number(foundBone.pos.z.toFixed(2)),
+    };
+  }
+
+  // 2. Quét tập đỉnh (vertex analysis) ở vùng ống tay phải (x > 0, nửa trên thân áo)
+  const candidates: THREE.Vector3[] = [];
+  const tempV = new THREE.Vector3();
+
+  model.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh;
+      const geo = mesh.geometry;
+      if (geo && geo.attributes.position) {
+        const posAttr = geo.attributes.position;
+        const step = Math.max(1, Math.floor(posAttr.count / 2000));
+        for (let i = 0; i < posAttr.count; i += step) {
+          tempV.fromBufferAttribute(posAttr, i);
+          tempV.applyMatrix4(mesh.matrixWorld);
+          // Ống tay phải: tọa độ X dương (bên phải), chiều cao thân áo giữa khoảng -0.15 và +0.35
+          // (Loại bỏ các đỉnh tà váy xòe rộng bên dưới hông y < -0.15)
+          if (tempV.x > 0.26 && tempV.y >= -0.15 && tempV.y <= 0.40) {
+            candidates.push(tempV.clone());
+          }
+        }
+      }
+    }
+  });
+
+  if (candidates.length > 0) {
+    // Sắp xếp theo X giảm dần để lấy các đỉnh rìa ngoài cùng của ống tay
+    candidates.sort((a, b) => b.x - a.x);
+    const sampleCount = Math.min(20, Math.max(1, Math.floor(candidates.length * 0.1)));
+    let sumX = 0;
+    let sumY = 0;
+    let sumZ = 0;
+    let validCount = 0;
+    for (let i = 0; i < sampleCount; i++) {
+      const pt = candidates[i];
+      if (pt) {
+        sumX += pt.x;
+        sumY += pt.y;
+        sumZ += pt.z;
+        validCount++;
+      }
+    }
+    if (validCount > 0) {
+      return {
+        x: Number((sumX / validCount).toFixed(2)),
+        y: Number((sumY / validCount).toFixed(2)),
+        z: Number((sumZ / validCount).toFixed(2)),
+      };
+    }
+  }
+
+  return null;
+}
 
 // Phụ kiện cầm tay trong danh mục
 export interface AccessoryModelRecord {
@@ -85,6 +384,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   // Separate Object Groups for Garment and Accessory
   const garmentGroupRef = useRef<THREE.Group | null>(null);
   const accessoryPivotRef = useRef<THREE.Group | null>(null);
+  const accessoryRotatorRef = useRef<THREE.Group | null>(null);
   const accessoryInnerModelRef = useRef<THREE.Group | null>(null);
 
   const animationFrameIdRef = useRef<number | null>(null);
@@ -122,22 +422,35 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   const [accessoryLoadingProgress, setAccessoryLoadingProgress] = useState<number>(0);
   const [accessoryError, setAccessoryError] = useState<string | null>(null);
 
+  // Anchor helper 3D indicator reference
+  const anchorHelperRef = useRef<THREE.Group | null>(null);
+  const [showAnchorHelper, setShowAnchorHelper] = useState<boolean>(false);
+  const [resetFeedbackNotice, setResetFeedbackNotice] = useState<string | null>(null);
+
   // Accessory fine-tuning transform settings
-  // Default suggested position calculated from garment bounding box
+  // Default anchor loaded from user-saved preset, session storage, or calibrated garment presets
+  const initialPairKey = getModelPairKey(undefined, currentGarmentId, undefined);
+  const initialUserPreset = getUserSavedPreset(initialPairKey);
+  const initialSessionAnchor = getSessionAnchor(initialPairKey);
+  const initialAnchorConfig = initialUserPreset || initialSessionAnchor || getGarmentDefaultAnchor(currentGarmentId);
+
+  const [savedPresetData, setSavedPresetData] = useState<UserSavedFanPreset | null>(initialUserPreset);
+  const [hasSavedCustomPreset, setHasSavedCustomPreset] = useState<boolean>(initialUserPreset !== null);
+
   const [suggestedAccessoryPos, setSuggestedAccessoryPos] = useState<{ x: number; y: number; z: number }>({
-    x: 0.52,
-    y: -0.15,
-    z: 0.18,
+    x: initialAnchorConfig.x,
+    y: initialAnchorConfig.y,
+    z: initialAnchorConfig.z,
   });
-  const [accessoryOffsetX, setAccessoryOffsetX] = useState<number>(0.52);
-  const [accessoryOffsetY, setAccessoryOffsetY] = useState<number>(-0.15);
-  const [accessoryOffsetZ, setAccessoryOffsetZ] = useState<number>(0.18);
-  const [accessoryRotY, setAccessoryRotY] = useState<number>(-25); // xoay ngang quanh trục đứng Y (độ)
-  const [accessoryRotZ, setAccessoryRotZ] = useState<number>(15);  // nghiêng quạt quanh trục Z (độ)
-  const [accessoryRotX, setAccessoryRotX] = useState<number>(0);   // ngửa/úp quạt quanh trục X (độ)
-  const [accessoryScale, setAccessoryScale] = useState<number>(1.0);
+  const [accessoryOffsetX, setAccessoryOffsetX] = useState<number>(initialAnchorConfig.x);
+  const [accessoryOffsetY, setAccessoryOffsetY] = useState<number>(initialAnchorConfig.y);
+  const [accessoryOffsetZ, setAccessoryOffsetZ] = useState<number>(initialAnchorConfig.z);
+  const [accessoryRotY, setAccessoryRotY] = useState<number>(initialAnchorConfig.rotY); // xoay ngang quanh trục đứng Y (độ)
+  const [accessoryRotZ, setAccessoryRotZ] = useState<number>(initialAnchorConfig.rotZ);  // nghiêng quạt quanh trục Z (độ)
+  const [accessoryRotX, setAccessoryRotX] = useState<number>(initialAnchorConfig.rotX);   // ngửa/úp quạt quanh trục X (độ)
+  const [accessoryScale, setAccessoryScale] = useState<number>(initialAnchorConfig.scale);
   const [isAccessoryVisible, setIsAccessoryVisible] = useState<boolean>(true);
-  const [showAccessoryControls, setShowAccessoryControls] = useState<boolean>(false);
+  const [showAccessoryControls, setShowAccessoryControls] = useState<boolean>(true);
 
   // Grid visibility toggle (Ẩn mặc định theo yêu cầu người dùng để không rối tà áo)
   const [showGrid, setShowGrid] = useState<boolean>(false);
@@ -154,24 +467,191 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
   const modelMeta = activeRecord ? activeRecord.matchedMeta : null;
   const availability = getGarmentModelAvailability(currentGarmentId);
 
-  // Helper: calculate smart default accessory position near the right sleeve end
-  const computeRightSleeveSuggestedPos = useCallback((garmentGroup: THREE.Group) => {
-    const box = new THREE.Box3().setFromObject(garmentGroup);
-    const size = box.getSize(new THREE.Vector3());
-    const maxCorner = box.max;
-    const minCorner = box.min;
+  // Đồng bộ trạng thái preset đã lưu khi đổi áo hoặc đổi phụ kiện
+  useEffect(() => {
+    const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel?.fileName);
+    const userPreset = getUserSavedPreset(pairKey);
+    setHasSavedCustomPreset(userPreset !== null);
+    setSavedPresetData(userPreset);
+  }, [currentGarmentId, activeModelId, accessoryModel?.fileName, activeRecord?.fileName]);
 
-    // Right sleeve tip is near max.x (or if model is oriented differently, at outer horizontal extreme)
-    // Tứ thân / Áo dài thường có ống tay rủ ở khoảng 40%-55% chiều cao từ đỉnh áo xuống
-    const suggestedX = Number((maxCorner.x * 0.92 + 0.08).toFixed(2));
-    const suggestedY = Number((minCorner.y + size.y * 0.45).toFixed(2));
-    const suggestedZ = Number((maxCorner.z * 0.5 + 0.12).toFixed(2));
+  // Cập nhật tọa độ điểm neo trực tiếp và lưu tạm thời vào phiên làm việc
+  const handleUpdateAnchorCoordinate = (
+    key: 'x' | 'y' | 'z' | 'rotX' | 'rotY' | 'rotZ' | 'scale',
+    value: number
+  ) => {
+    if (isNaN(value)) return;
+    const nextX = key === 'x' ? value : accessoryOffsetX;
+    const nextY = key === 'y' ? value : accessoryOffsetY;
+    const nextZ = key === 'z' ? value : accessoryOffsetZ;
+    const nextRotX = key === 'rotX' ? value : accessoryRotX;
+    const nextRotY = key === 'rotY' ? value : accessoryRotY;
+    const nextRotZ = key === 'rotZ' ? value : accessoryRotZ;
+    const nextScale = key === 'scale' ? value : accessoryScale;
 
-    return {
-      x: Math.max(suggestedX, 0.42),
-      y: suggestedY,
-      z: Math.max(suggestedZ, 0.12),
+    if (key === 'x') setAccessoryOffsetX(value);
+    if (key === 'y') setAccessoryOffsetY(value);
+    if (key === 'z') setAccessoryOffsetZ(value);
+    if (key === 'rotX') setAccessoryRotX(value);
+    if (key === 'rotY') setAccessoryRotY(value);
+    if (key === 'rotZ') setAccessoryRotZ(value);
+    if (key === 'scale') setAccessoryScale(value);
+
+    const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel?.fileName);
+    saveSessionAnchor(pairKey, {
+      x: nextX,
+      y: nextY,
+      z: nextZ,
+      rotX: nextRotX,
+      rotY: nextRotY,
+      rotZ: nextRotZ,
+      scale: nextScale,
+    });
+  };
+
+  // Tinh chỉnh bước nhỏ (Nudge +/-)
+  const handleNudgeCoordinate = (
+    key: 'x' | 'y' | 'z' | 'rotX' | 'rotY' | 'rotZ' | 'scale',
+    delta: number
+  ) => {
+    let currentVal = 0;
+    if (key === 'x') currentVal = accessoryOffsetX;
+    else if (key === 'y') currentVal = accessoryOffsetY;
+    else if (key === 'z') currentVal = accessoryOffsetZ;
+    else if (key === 'rotX') currentVal = accessoryRotX;
+    else if (key === 'rotY') currentVal = accessoryRotY;
+    else if (key === 'rotZ') currentVal = accessoryRotZ;
+    else if (key === 'scale') currentVal = accessoryScale;
+
+    const precision = (key === 'x' || key === 'y' || key === 'z' || key === 'scale') ? 2 : 0;
+    const nextVal = Number((currentVal + delta).toFixed(precision));
+    handleUpdateAnchorCoordinate(key, nextVal);
+  };
+
+  // 1. LƯU VỊ TRÍ HIỆN TẠI LÀM MẶC ĐỊNH CHO RIÊNG CẶP MODEL NÀY
+  const handleSaveCurrentAsDefault = () => {
+    const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel?.fileName);
+    const garmentLabel = activeRecord?.assignedGarmentLabel || currentGarmentName || 'Áo Tứ Thân';
+    const currentData: SleeveAnchorData = {
+      x: Number(accessoryOffsetX.toFixed(2)),
+      y: Number(accessoryOffsetY.toFixed(2)),
+      z: Number(accessoryOffsetZ.toFixed(2)),
+      rotX: Number(accessoryRotX.toFixed(0)),
+      rotY: Number(accessoryRotY.toFixed(0)),
+      rotZ: Number(accessoryRotZ.toFixed(0)),
+      scale: Number(accessoryScale.toFixed(2)),
     };
+    saveUserCustomPreset(pairKey, currentData, garmentLabel);
+    setHasSavedCustomPreset(true);
+    setSavedPresetData({
+      ...currentData,
+      savedAt: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+      garmentLabel,
+      pairKey,
+    });
+    setResetFeedbackNotice(
+      `✓ Đã lưu vị trí quạt hiện tại làm MẶC ĐỊNH cho riêng ${garmentLabel} + Quạt (X: ${currentData.x}m, Y: ${currentData.y}m, Z: ${currentData.z}m). Khi tải lại quạt hoặc tải lại trang sẽ tự động áp dụng vị trí này!`
+    );
+    setTimeout(() => setResetFeedbackNotice(null), 5000);
+  };
+
+  // 2. ĐƯA QUẠT VỀ VỊ TRÍ BAN ĐẦU (Khôi phục cài đặt gốc của hệ thống)
+  const handleResetToInitial = () => {
+    const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel?.fileName);
+    const defaults = getGarmentDefaultAnchor(currentGarmentId);
+
+    setAccessoryOffsetX(defaults.x);
+    setAccessoryOffsetY(defaults.y);
+    setAccessoryOffsetZ(defaults.z);
+    setAccessoryRotX(defaults.rotX);
+    setAccessoryRotY(defaults.rotY);
+    setAccessoryRotZ(defaults.rotZ);
+    setAccessoryScale(defaults.scale);
+    setIsAccessoryVisible(true);
+
+    saveSessionAnchor(pairKey, defaults);
+
+    setResetFeedbackNotice(
+      `Đã đưa quạt về vị trí ban đầu của hệ thống (X: ${defaults.x}m, Y: ${defaults.y}m, Z: ${defaults.z}m).`
+    );
+    setTimeout(() => setResetFeedbackNotice(null), 4000);
+  };
+
+  // 3. XÓA VỊ TRÍ ĐÃ LƯU (Xóa preset đã lưu cho cặp model này)
+  const handleDeleteSavedPreset = () => {
+    const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel?.fileName);
+    deleteUserCustomPreset(pairKey);
+    setHasSavedCustomPreset(false);
+    setSavedPresetData(null);
+
+    const defaults = getGarmentDefaultAnchor(currentGarmentId);
+    setAccessoryOffsetX(defaults.x);
+    setAccessoryOffsetY(defaults.y);
+    setAccessoryOffsetZ(defaults.z);
+    setAccessoryRotX(defaults.rotX);
+    setAccessoryRotY(defaults.rotY);
+    setAccessoryRotZ(defaults.rotZ);
+    setAccessoryScale(defaults.scale);
+
+    setResetFeedbackNotice(
+      `Đã xóa preset mặc định đã lưu cho cặp mô hình này. Quạt đã quay về cài đặt gốc ban đầu.`
+    );
+    setTimeout(() => setResetFeedbackNotice(null), 4000);
+  };
+
+  // Preset các góc nhìn camera để kiểm tra vị trí quạt và đầu ống tay
+  const setPresetCameraAngle = (view: 'front' | 'perspective' | 'side') => {
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+    if (!camera || !controls) return;
+
+    const target = controls.target.clone();
+    const currentDist = camera.position.distanceTo(target) || 2.4;
+
+    if (view === 'front') {
+      // 1. Góc chính diện: thẳng trục Z
+      camera.position.set(target.x, target.y + currentDist * 0.08, target.z + currentDist);
+    } else if (view === 'perspective') {
+      // 2. Góc nghiêng 45°: nhìn chếch 3/4
+      const horiz = currentDist * 0.7071;
+      camera.position.set(target.x + horiz, target.y + currentDist * 0.12, target.z + horiz);
+    } else if (view === 'side') {
+      // 3. Góc ngang 90°: nhìn trực diện từ cạnh sườn phải (nơi có đầu ống tay áo và quạt)
+      camera.position.set(target.x + currentDist, target.y + currentDist * 0.08, target.z);
+    }
+
+    camera.lookAt(target);
+    controls.update();
+  };
+
+  // Helper: calculate smart default accessory position near the right sleeve end
+  const computeRightSleeveSuggestedPos = useCallback((garmentGroup: THREE.Group, garmentKey: string) => {
+    // 1. Kiểm tra session storage trước (nếu người dùng đã tự chỉnh trong phiên)
+    const saved = getSessionAnchor(garmentKey);
+    if (saved) {
+      return { x: saved.x, y: saved.y, z: saved.z };
+    }
+
+    // 2. Với các dòng áo có cấu hình chuẩn riêng biệt (đặc biệt là Áo Tứ Thân tu-than-color.glb x Quạt):
+    // Ưu tiên tuyệt đối bộ tọa độ đã được tinh chỉnh chuyên biệt theo từng phom dáng áo
+    if (DEDICATED_GARMENT_FAN_CONFIGS[garmentKey]) {
+      const def = DEDICATED_GARMENT_FAN_CONFIGS[garmentKey];
+      return { x: def.x, y: def.y, z: def.z };
+    }
+
+    // 3. Nếu là tệp tùy biến / chưa có trong danh mục: Thử quét phân tích đỉnh (vertex analysis)
+    const detected = detectRightSleeveEnd(garmentGroup);
+    if (detected && detected.x >= 0.28 && detected.x <= 0.65 && detected.y >= -0.15 && detected.y <= 0.35) {
+      return {
+        x: Number((detected.x + 0.04).toFixed(2)),
+        y: detected.y,
+        z: Number((detected.z + 0.16).toFixed(2)), // Đẩy ra phía trước mặt vải
+      };
+    }
+
+    // 4. Dự phòng cấu hình mặc định
+    const def = getGarmentDefaultAnchor(garmentKey);
+    return { x: def.x, y: def.y, z: def.z };
   }, []);
 
   // Dispose all meshes, geometries, and materials safely
@@ -221,6 +701,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       disposeGroup(accessoryPivotRef.current);
       sceneRef.current.remove(accessoryPivotRef.current);
       accessoryPivotRef.current = null;
+      accessoryRotatorRef.current = null;
       accessoryInnerModelRef.current = null;
     }
   }, [disposeGroup]);
@@ -281,12 +762,20 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       accessoryPivotRef.current.scale.set(accessoryScale, accessoryScale, accessoryScale);
       accessoryPivotRef.current.visible = isAccessoryVisible;
     }
-    if (accessoryInnerModelRef.current) {
-      accessoryInnerModelRef.current.rotation.x = THREE.MathUtils.degToRad(accessoryRotX);
-      accessoryInnerModelRef.current.rotation.y = THREE.MathUtils.degToRad(accessoryRotY);
-      accessoryInnerModelRef.current.rotation.z = THREE.MathUtils.degToRad(accessoryRotZ);
+    if (accessoryRotatorRef.current) {
+      accessoryRotatorRef.current.rotation.x = THREE.MathUtils.degToRad(accessoryRotX);
+      accessoryRotatorRef.current.rotation.y = THREE.MathUtils.degToRad(accessoryRotY);
+      accessoryRotatorRef.current.rotation.z = THREE.MathUtils.degToRad(accessoryRotZ);
     }
   }, [accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ, accessoryRotX, accessoryRotY, accessoryRotZ, accessoryScale, isAccessoryVisible]);
+
+  // Cập nhật vị trí và hiển thị điểm neo 3D (Anchor Helper) theo thời gian thực
+  useEffect(() => {
+    if (anchorHelperRef.current) {
+      anchorHelperRef.current.position.set(accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ);
+      anchorHelperRef.current.visible = showAnchorHelper;
+    }
+  }, [accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ, showAnchorHelper]);
 
   // Update GridHelper visibility
   useEffect(() => {
@@ -295,16 +784,28 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     }
   }, [showGrid]);
 
-  // Reset accessory to suggested smart position
+  // Reset accessory và điểm neo về tọa độ chuẩn ống tay áo
   const handleResetAccessoryToSuggested = () => {
-    setAccessoryOffsetX(suggestedAccessoryPos.x);
-    setAccessoryOffsetY(suggestedAccessoryPos.y);
-    setAccessoryOffsetZ(suggestedAccessoryPos.z);
-    setAccessoryRotX(0);
-    setAccessoryRotY(-25);
-    setAccessoryRotZ(15);
-    setAccessoryScale(1.0);
+    const garmentKey = activeRecord?.assignedGarmentId || currentGarmentId || 'ao-tu-than';
+    const defaults = getGarmentDefaultAnchor(garmentKey);
+
+    setAccessoryOffsetX(defaults.x);
+    setAccessoryOffsetY(defaults.y);
+    setAccessoryOffsetZ(defaults.z);
+    setAccessoryRotX(defaults.rotX);
+    setAccessoryRotY(defaults.rotY);
+    setAccessoryRotZ(defaults.rotZ);
+    setAccessoryScale(defaults.scale);
     setIsAccessoryVisible(true);
+
+    saveSessionAnchor(garmentKey, defaults);
+
+    setResetFeedbackNotice(
+      garmentKey === 'ao-tu-than'
+        ? `Đã khôi phục điểm neo chuẩn ống tay áo tứ thân (X: ${defaults.x}m, Y: ${defaults.y}m, Z: ${defaults.z}m)`
+        : 'Đã khôi phục điểm neo chuẩn về vị trí ống tay áo mặc định!'
+    );
+    setTimeout(() => setResetFeedbackNotice(null), 3500);
   };
 
   // Initialize Three.js Scene, Camera, Renderer, Controls (Runs ONCE on mount)
@@ -367,6 +868,29 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     gridHelperRef.current = grid;
     scene.add(grid);
 
+    // Anchor Helper 3D Marker (Ẩn mặc định, bật khi cần căn thử)
+    const anchorGroup = new THREE.Group();
+    anchorGroup.name = 'sleeveAnchorHelper';
+
+    const sphereGeo = new THREE.SphereGeometry(0.016, 16, 16);
+    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x1B4D3E });
+    const sphereMesh = new THREE.Mesh(sphereGeo, sphereMat);
+    anchorGroup.add(sphereMesh);
+
+    const ringGeo = new THREE.RingGeometry(0.024, 0.032, 28);
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xD4A054, side: THREE.DoubleSide });
+    const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+    ringMesh.name = 'anchorRing';
+    anchorGroup.add(ringMesh);
+
+    const axesHelper = new THREE.AxesHelper(0.06);
+    anchorGroup.add(axesHelper);
+
+    anchorGroup.position.set(accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ);
+    anchorGroup.visible = false;
+    scene.add(anchorGroup);
+    anchorHelperRef.current = anchorGroup;
+
     // 5. OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -383,6 +907,14 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
     const animate = () => {
       if (!isRunning) return;
       controls.update();
+
+      if (anchorHelperRef.current && anchorHelperRef.current.visible) {
+        const ring = anchorHelperRef.current.getObjectByName('anchorRing');
+        if (ring) {
+          ring.rotation.z += 0.015;
+        }
+      }
+
       renderer.render(scene, camera);
       animationFrameIdRef.current = requestAnimationFrame(animate);
     };
@@ -415,6 +947,12 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       controls.dispose();
       disposeCurrentGarment();
       disposeCurrentAccessory();
+
+      if (anchorHelperRef.current && sceneRef.current) {
+        sceneRef.current.remove(anchorHelperRef.current);
+        anchorHelperRef.current = null;
+      }
+
       renderer.dispose();
 
       if (container && renderer.domElement) {
@@ -526,13 +1064,43 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
 
         // Add garment to scene
         scene.add(model);
+        model.updateMatrixWorld(true);
 
-        // 2. Compute smart suggested accessory position near right sleeve end based on real bounding box
-        const smartPos = computeRightSleeveSuggestedPos(model);
+        // 2. Xác định điểm neo cho phụ kiện quạt
+        const garmentKey = targetRecord.assignedGarmentId || currentGarmentId || 'ao-tu-than';
+        const pairKey = getModelPairKey(targetRecord.fileName, garmentKey, accessoryModelRef.current?.fileName);
+        const userPreset = getUserSavedPreset(pairKey);
+        const currentSaved = getSessionAnchor(pairKey);
+        const smartPos = computeRightSleeveSuggestedPos(model, garmentKey);
         setSuggestedAccessoryPos(smartPos);
-        setAccessoryOffsetX(smartPos.x);
-        setAccessoryOffsetY(smartPos.y);
-        setAccessoryOffsetZ(smartPos.z);
+
+        const targetAnchor = userPreset || currentSaved;
+        if (targetAnchor) {
+          setAccessoryOffsetX(targetAnchor.x);
+          setAccessoryOffsetY(targetAnchor.y);
+          setAccessoryOffsetZ(targetAnchor.z);
+          setAccessoryRotX(targetAnchor.rotX);
+          setAccessoryRotY(targetAnchor.rotY);
+          setAccessoryRotZ(targetAnchor.rotZ);
+          setAccessoryScale(targetAnchor.scale);
+        } else {
+          setAccessoryOffsetX(smartPos.x);
+          setAccessoryOffsetY(smartPos.y);
+          setAccessoryOffsetZ(smartPos.z);
+          const def = getGarmentDefaultAnchor(garmentKey);
+          setAccessoryRotX(def.rotX);
+          setAccessoryRotY(def.rotY);
+          setAccessoryRotZ(def.rotZ);
+          setAccessoryScale(def.scale);
+        }
+
+        if (userPreset) {
+          setHasSavedCustomPreset(true);
+          setSavedPresetData(userPreset);
+        } else {
+          setHasSavedCustomPreset(false);
+          setSavedPresetData(null);
+        }
 
         currentLoadedGarmentIdRef.current = targetRecord.id;
         setViewerStatus('ready');
@@ -564,7 +1132,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
         onModelErrorRef.current?.(errText);
       }
     );
-  }, [activeModelId, retryTrigger, disposeCurrentGarment, disposeGroup, updateCameraFraming, computeRightSleeveSuggestedPos]);
+  }, [activeModelId, retryTrigger, disposeCurrentGarment, disposeGroup, updateCameraFraming, computeRightSleeveSuggestedPos, currentGarmentId]);
 
   // ==========================================
   // EFFECT 2: LOAD ACCESSORY MODEL (QUẠT RIÊNG BIỆT - KHÔNG TẢI LẠI ÁO)
@@ -624,27 +1192,74 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
         const center = rawBox.getCenter(new THREE.Vector3());
         const size = rawBox.getSize(new THREE.Vector3());
 
-        // Center geometry internally
+        // Center geometry internally:
+        // Đặt điểm xoay (pivot) tại đáy quạt (rawBox.min.y) - nơi có chuôi/cán quạt và đinh tán nan quạt.
+        // Nhờ vậy khi xoay góc hay căn điểm neo, cán quạt luôn nằm chính xác ở vị trí cầm của ống tay áo!
         fanModel.position.x = -center.x;
-        fanModel.position.y = -center.y;
+        fanModel.position.y = -rawBox.min.y;
         fanModel.position.z = -center.z;
+        fanModel.rotation.set(0, 0, 0);
 
-        // Set initial rotation
-        fanModel.rotation.x = THREE.MathUtils.degToRad(accessoryRotX);
-        fanModel.rotation.y = THREE.MathUtils.degToRad(accessoryRotY);
-        fanModel.rotation.z = THREE.MathUtils.degToRad(accessoryRotZ);
+        // Đảm bảo phụ kiện quạt luôn render rõ nét phía trước vải áo, tránh lỗi depth conflict
+        fanModel.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const m = child as THREE.Mesh;
+            m.renderOrder = 10;
+            if (m.material) {
+              const mats = Array.isArray(m.material) ? m.material : [m.material];
+              mats.forEach((mat) => {
+                mat.depthTest = true;
+                mat.depthWrite = true;
+              });
+            }
+          }
+        });
+
+        // Lấy tọa độ từ preset đã lưu của người dùng cho cặp model này, hoặc session, hoặc mặc định
+        const pairKey = getModelPairKey(activeRecord?.fileName, currentGarmentId, accessoryModel.fileName);
+        const userPreset = getUserSavedPreset(pairKey);
+        const currentSaved = getSessionAnchor(pairKey);
+        const targetAnchor = userPreset || currentSaved || getGarmentDefaultAnchor(currentGarmentId);
+
+        setAccessoryOffsetX(targetAnchor.x);
+        setAccessoryOffsetY(targetAnchor.y);
+        setAccessoryOffsetZ(targetAnchor.z);
+        setAccessoryRotX(targetAnchor.rotX);
+        setAccessoryRotY(targetAnchor.rotY);
+        setAccessoryRotZ(targetAnchor.rotZ);
+        setAccessoryScale(targetAnchor.scale);
+
+        if (userPreset) {
+          setHasSavedCustomPreset(true);
+          setSavedPresetData(userPreset);
+        } else {
+          setHasSavedCustomPreset(false);
+          setSavedPresetData(null);
+        }
+
+        // Middle Rotator Group (pivot xoay chuẩn tại gốc cán quạt)
+        const rotator = new THREE.Group();
+        rotator.name = 'fanRotatorGroup';
+        rotator.rotation.x = THREE.MathUtils.degToRad(targetAnchor.rotX);
+        rotator.rotation.y = THREE.MathUtils.degToRad(targetAnchor.rotY);
+        rotator.rotation.z = THREE.MathUtils.degToRad(targetAnchor.rotZ);
+        rotator.add(fanModel);
+        accessoryRotatorRef.current = rotator;
 
         // Outer positioning pivot group
         const pivot = new THREE.Group();
-        pivot.add(fanModel);
+        pivot.name = 'fanPivotGroup';
+        pivot.add(rotator);
 
-        // Position: use current offset (aligned near right sleeve)
-        pivot.position.set(accessoryOffsetX, accessoryOffsetY, accessoryOffsetZ);
-        pivot.scale.set(accessoryScale, accessoryScale, accessoryScale);
+        // Position: use target offset
+        pivot.position.set(targetAnchor.x, targetAnchor.y, targetAnchor.z);
+        pivot.scale.set(targetAnchor.scale, targetAnchor.scale, targetAnchor.scale);
         pivot.visible = isAccessoryVisible;
 
         accessoryPivotRef.current = pivot;
         scene.add(pivot);
+
+        setShowAccessoryControls(true);
 
         const dimensions = {
           width: Number(size.x.toFixed(2)),
@@ -1157,15 +1772,45 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
       {/* 2. DEDICATED ACCESSORY FINE-TUNING PANEL (HIỂN THỊ KHI BẬT, NẰM NGOÀI CANVAS ĐỂ KHÔNG CHE ÁO) */}
       {accessoryModel && showAccessoryControls && (
         <div className="bg-white p-3.5 rounded-sm border border-[#1B4D3E]/30 shadow-xs space-y-3 text-xs animate-in fade-in">
-          <div className="flex items-center justify-between border-b border-[#1B4D3E]/10 pb-2">
-            <div className="flex items-center gap-2">
+          {/* Header Panel */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1B4D3E]/10 pb-2.5">
+            <div className="flex flex-wrap items-center gap-2">
               <Fan className="w-4 h-4 text-[#1B4D3E]" />
               <strong className="text-sm font-semibold text-[#1B4D3E]">
-                Bảng tinh chỉnh vị trí & góc xoay quạt 3D
+                Công cụ chỉnh tay quạt 3D & Lưu Preset
               </strong>
+              {(activeRecord?.assignedGarmentId === 'ao-tu-than' || currentGarmentId === 'ao-tu-than') && (
+                <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-xs font-semibold border border-amber-300">
+                  Cặp riêng: Áo Tứ Thân (tu-than-color.glb) × Quạt (fan-decorated.glb)
+                </span>
+              )}
+              {hasSavedCustomPreset ? (
+                <span className="text-[10px] bg-emerald-100 text-emerald-900 px-2 py-0.5 rounded-xs font-bold border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                  ★ Đã lưu Preset riêng
+                </span>
+              ) : (
+                <span className="text-[10px] bg-stone-100 text-stone-600 px-2 py-0.5 rounded-xs border border-stone-200">
+                  Chưa lưu preset riêng
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1.5 ml-auto">
+              {/* Nút Hiện / Ẩn điểm neo 3D (Mặc định ẩn, bật khi cần căn thử) */}
+              <button
+                type="button"
+                onClick={() => setShowAnchorHelper(!showAnchorHelper)}
+                className={`px-2 py-1 rounded-xs text-[11px] font-medium border cursor-pointer transition-colors flex items-center gap-1 ${
+                  showAnchorHelper
+                    ? 'bg-amber-100 text-amber-900 border-amber-400 font-semibold shadow-2xs'
+                    : 'bg-stone-50 hover:bg-stone-100 text-stone-700 border-stone-300'
+                }`}
+                title={showAnchorHelper ? 'Ẩn điểm neo 3D' : 'Hiện điểm neo 3D để căn thử'}
+              >
+                <Crosshair className="w-3.5 h-3.5 text-[#1B4D3E]" />
+                <span>{showAnchorHelper ? 'Điểm neo (Bật)' : 'Hiện điểm neo'}</span>
+              </button>
+
               {/* Nút Ẩn / Hiện Quạt */}
               <button
                 type="button"
@@ -1178,18 +1823,7 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
                 title={isAccessoryVisible ? 'Ẩn quạt khỏi khung 3D' : 'Hiện quạt trở lại'}
               >
                 {isAccessoryVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-                <span>{isAccessoryVisible ? 'Đang hiện' : 'Đang ẩn'}</span>
-              </button>
-
-              {/* Nút Reset về vị trí gợi ý ban đầu */}
-              <button
-                type="button"
-                onClick={handleResetAccessoryToSuggested}
-                className="px-2 py-1 bg-stone-100 hover:bg-stone-200 text-stone-800 rounded-xs text-[11px] font-medium cursor-pointer transition-colors flex items-center gap-1"
-                title="Khôi phục vị trí gợi ý gần ống tay phải áo"
-              >
-                <RotateCcw className="w-3 h-3 text-[#1B4D3E]" />
-                <span>Đặt lại vị trí gợi ý</span>
+                <span>{isAccessoryVisible ? 'Quạt (Hiện)' : 'Quạt (Ẩn)'}</span>
               </button>
 
               <button
@@ -1203,138 +1837,450 @@ export const GlbModelViewer: React.FC<GlbModelViewerProps> = ({
             </div>
           </div>
 
-          {/* Sliders Grid: Trái phải (X), Lên xuống (Y), Trước sau (Z), Xoay (Yaw Y), Nghiêng (Roll Z), Tỉ lệ (Scale) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-[11px]">
+          {/* Action Buttons Row: Lưu làm mặc định, Về vị trí ban đầu, Xóa preset đã lưu */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/10">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Nút Lưu vị trí hiện tại làm mặc định */}
+              <button
+                type="button"
+                onClick={handleSaveCurrentAsDefault}
+                className="px-3.5 py-1.5 bg-[#1B4D3E] hover:bg-[#153e32] text-white rounded-xs text-xs font-bold cursor-pointer transition-all flex items-center gap-1.5 shadow-2xs active:scale-95"
+                title="Lưu vị trí và góc xoay hiện tại làm mặc định vĩnh viễn cho riêng cặp Áo Tứ Thân + Quạt này"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>Lưu vị trí hiện tại làm mặc định</span>
+              </button>
+
+              {/* Nút Đưa quạt về vị trí ban đầu */}
+              <button
+                type="button"
+                onClick={handleResetToInitial}
+                className="px-3 py-1.5 bg-white hover:bg-stone-100 text-stone-800 border border-stone-300 rounded-xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95"
+                title="Khôi phục lại tọa độ gốc ban đầu của hệ thống"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-[#1B4D3E]" />
+                <span>Đưa quạt về vị trí ban đầu</span>
+              </button>
+
+              {/* Nút Xóa vị trí đã lưu (Chỉ hiện khi đã có preset lưu tùy chỉnh) */}
+              {hasSavedCustomPreset && (
+                <button
+                  type="button"
+                  onClick={handleDeleteSavedPreset}
+                  className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xs text-xs font-medium cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs active:scale-95"
+                  title="Xóa preset mặc định đã lưu cho cặp mô hình này và quay về cài đặt gốc"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Xóa vị trí đã lưu</span>
+                </button>
+              )}
+            </div>
+
+            {/* Quick 3 Camera Angles to verify fan & right sleeve placement */}
+            <div className="flex items-center gap-1 ml-auto">
+              <span className="text-[10px] text-stone-500 font-medium mr-1 hidden sm:inline">Góc nhìn:</span>
+              <button
+                type="button"
+                onClick={() => setPresetCameraAngle('front')}
+                className="px-2 py-1 bg-white hover:bg-stone-100 text-[#241E1C] border border-[#241E1C]/15 rounded-xs text-[11px] font-medium cursor-pointer transition-colors shadow-2xs active:scale-95"
+                title="Góc chính diện (0°)"
+              >
+                Chính diện (0°)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresetCameraAngle('perspective')}
+                className="px-2 py-1 bg-white hover:bg-stone-100 text-[#241E1C] border border-[#241E1C]/15 rounded-xs text-[11px] font-medium cursor-pointer transition-colors shadow-2xs active:scale-95"
+                title="Góc nghiêng 45°"
+              >
+                Nghiêng 45°
+              </button>
+              <button
+                type="button"
+                onClick={() => setPresetCameraAngle('side')}
+                className="px-2 py-1 bg-white hover:bg-stone-100 text-[#241E1C] border border-[#241E1C]/15 rounded-xs text-[11px] font-medium cursor-pointer transition-colors shadow-2xs active:scale-95"
+                title="Góc ngang 90° (Cạnh tay áo)"
+              >
+                Ngang 90°
+              </button>
+            </div>
+          </div>
+
+          {/* Status & Feedback Notice Banner */}
+          {resetFeedbackNotice ? (
+            <div className="p-2.5 bg-emerald-50 border border-emerald-300 text-emerald-900 rounded-xs text-xs font-medium flex items-center justify-between animate-in fade-in">
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-[#1B4D3E] shrink-0" />
+                <span>{resetFeedbackNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetFeedbackNotice(null)}
+                className="text-emerald-700 hover:text-emerald-950 cursor-pointer p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : hasSavedCustomPreset ? (
+            <div className="p-2 bg-emerald-50/70 border border-emerald-200 text-emerald-900 rounded-xs text-[11px] flex items-center justify-between">
+              <span>
+                ✓ Đang áp dụng vị trí <strong>MẶC ĐỊNH bạn đã lưu</strong> cho Áo Tứ Thân + Quạt (X: {savedPresetData?.x}m, Y: {savedPresetData?.y}m, Z: {savedPresetData?.z}m, Yaw: {savedPresetData?.rotY}°, Nghiêng Z: {savedPresetData?.rotZ}°). Các lần tải lại quạt hoặc tải lại trang sẽ tự động giữ nguyên vị trí này!
+              </span>
+            </div>
+          ) : (
+            <div className="p-2 bg-amber-50/60 border border-amber-200 text-amber-900 rounded-xs text-[11px]">
+              <span>
+                ℹ Đang áp dụng vị trí chuẩn mới cho Áo Tứ Thân: Đầu quạt giữ nguyên hướng chúc xuống và rủ chéo sang phải (Z-Roll: -138°), tọa độ quạt dịch lên khít sát mép tay áo (X: 0.43m, Y: 0.19m, Z: 0.00m). Bạn có thể tinh chỉnh thêm rồi nhấn <strong>"Lưu vị trí hiện tại làm mặc định"</strong>!
+              </span>
+            </div>
+          )}
+
+          {/* Sliders & Direct Number Inputs Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2.5 text-[11px]">
             {/* 1. Trái / Phải (X) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
                 <span>Trái - Phải (X):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetX.toFixed(2)}m</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('x', -0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Dịch trái -0.01m"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={accessoryOffsetX}
+                    onChange={(e) => handleUpdateAnchorCoordinate('x', parseFloat(e.target.value))}
+                    className="w-14 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">m</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('x', 0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Dịch phải +0.01m"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="0.2"
-                max="1.4"
-                step="0.02"
+                min="-0.10"
+                max="0.85"
+                step="0.01"
                 value={accessoryOffsetX}
-                onChange={(e) => setAccessoryOffsetX(parseFloat(e.target.value))}
+                onChange={(e) => handleUpdateAnchorCoordinate('x', parseFloat(e.target.value))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Gần thân</span>
-                <span>Xa tay</span>
+                <span>(-) Gần thân</span>
+                <span>Mép ngoài tay (+)</span>
               </div>
             </div>
 
             {/* 2. Lên / Xuống (Y) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
                 <span>Lên - Xuống (Y):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetY.toFixed(2)}m</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('y', -0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Hạ thấp -0.01m"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={accessoryOffsetY}
+                    onChange={(e) => handleUpdateAnchorCoordinate('y', parseFloat(e.target.value))}
+                    className="w-14 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">m</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('y', 0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Nâng cao +0.01m"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="-0.7"
-                max="0.4"
-                step="0.02"
+                min="-0.50"
+                max="0.50"
+                step="0.01"
                 value={accessoryOffsetY}
-                onChange={(e) => setAccessoryOffsetY(parseFloat(e.target.value))}
+                onChange={(e) => handleUpdateAnchorCoordinate('y', parseFloat(e.target.value))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Hạ thấp</span>
-                <span>Nâng cao</span>
+                <span>(-) Hạ thấp</span>
+                <span>Nâng cao (+)</span>
               </div>
             </div>
 
-            {/* 3. Trước / Sau (Z) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
+            {/* 3. Trước / Sau (Z - Chiều sâu ra ngoài áo) */}
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
                 <span>Trước - Sau (Z):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryOffsetZ.toFixed(2)}m</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('z', -0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Lùi sau -0.01m"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={accessoryOffsetZ}
+                    onChange={(e) => handleUpdateAnchorCoordinate('z', parseFloat(e.target.value))}
+                    className="w-14 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">m</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('z', 0.01)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Đưa ra trước +0.01m"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="-0.3"
-                max="0.6"
-                step="0.02"
+                min="-0.15"
+                max="0.55"
+                step="0.01"
                 value={accessoryOffsetZ}
-                onChange={(e) => setAccessoryOffsetZ(parseFloat(e.target.value))}
+                onChange={(e) => handleUpdateAnchorCoordinate('z', parseFloat(e.target.value))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Sau tà</span>
-                <span>Trước ngực</span>
+                <span>(-) Lùi trong áo</span>
+                <span>Ra ngoài mặt vải (+)</span>
               </div>
             </div>
 
             {/* 4. Góc Xoay Hướng Quạt (Yaw - Y) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
-                <span>Góc xoay (Y):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryRotY}°</span>
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
+                <span>Xoay mặt nan (Y):</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotY', -2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Xoay -2°"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="1"
+                    value={accessoryRotY}
+                    onChange={(e) => handleUpdateAnchorCoordinate('rotY', parseInt(e.target.value, 10))}
+                    className="w-12 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">°</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotY', 2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Xoay +2°"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="-90"
-                max="90"
-                step="5"
+                min="-180"
+                max="180"
+                step="1"
                 value={accessoryRotY}
-                onChange={(e) => setAccessoryRotY(parseInt(e.target.value, 10))}
+                onChange={(e) => handleUpdateAnchorCoordinate('rotY', parseInt(e.target.value, 10))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Quay trong</span>
-                <span>Quay ngoài</span>
+                <span>-180° Xoay trong</span>
+                <span>Xoay ngoài +180°</span>
               </div>
             </div>
 
-            {/* 5. Góc Nghiêng Quạt (Roll - Z) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
-                <span>Độ nghiêng (Z):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryRotZ}°</span>
+            {/* 5. Góc Nghiêng Cán Quạt (Roll - Z) */}
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
+                <span>Nghiêng quạt (Z):</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotZ', -2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Nghiêng -2°"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="1"
+                    value={accessoryRotZ}
+                    onChange={(e) => handleUpdateAnchorCoordinate('rotZ', parseInt(e.target.value, 10))}
+                    className="w-12 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">°</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotZ', 2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Nghiêng +2°"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="-60"
-                max="60"
-                step="5"
+                min="-180"
+                max="180"
+                step="1"
                 value={accessoryRotZ}
-                onChange={(e) => setAccessoryRotZ(parseInt(e.target.value, 10))}
+                onChange={(e) => handleUpdateAnchorCoordinate('rotZ', parseInt(e.target.value, 10))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Nghiêng trái</span>
-                <span>Nghiêng phải</span>
+                <span>-180° Chúc xuống-phải</span>
+                <span>Dựng đứng +180°</span>
               </div>
             </div>
 
-            {/* 6. Tỉ lệ Kích Thước (Scale) */}
-            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-xs border border-[#241E1C]/5">
-              <div className="flex justify-between font-medium text-stone-700">
-                <span>Kích thước (Scale):</span>
-                <span className="font-mono text-[#1B4D3E]">{accessoryScale.toFixed(2)}x</span>
+            {/* 6. Ngửa / Úp Quạt (Pitch - X) */}
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
+                <span>Ngửa/Úp quạt (X):</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotX', -2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Ngửa -2°"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="1"
+                    value={accessoryRotX}
+                    onChange={(e) => handleUpdateAnchorCoordinate('rotX', parseInt(e.target.value, 10))}
+                    className="w-12 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">°</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('rotX', 2)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Úp +2°"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
               <input
                 type="range"
-                min="0.5"
-                max="1.8"
-                step="0.05"
-                value={accessoryScale}
-                onChange={(e) => setAccessoryScale(parseFloat(e.target.value))}
+                min="-180"
+                max="180"
+                step="1"
+                value={accessoryRotX}
+                onChange={(e) => handleUpdateAnchorCoordinate('rotX', parseInt(e.target.value, 10))}
                 className="w-full accent-[#1B4D3E] cursor-pointer"
               />
               <div className="flex justify-between text-[9px] text-stone-400">
-                <span>Thu nhỏ</span>
-                <span>Phóng lớn</span>
+                <span>-180° Ngửa ra trước</span>
+                <span>Úp vào sau +180°</span>
+              </div>
+            </div>
+
+            {/* 7. Tỉ lệ Kích Thước (Scale) */}
+            <div className="space-y-1.5 bg-[#FAF7F2] p-2.5 rounded-xs border border-[#241E1C]/10 flex flex-col justify-between">
+              <div className="flex items-center justify-between font-medium text-stone-800">
+                <span>Kích thước (Scale):</span>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('scale', -0.05)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Thu nhỏ -0.05"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    step="0.02"
+                    value={accessoryScale}
+                    onChange={(e) => handleUpdateAnchorCoordinate('scale', parseFloat(e.target.value))}
+                    className="w-14 text-center font-mono font-bold text-xs bg-white border border-stone-300 rounded-2xs py-0.5 text-[#1B4D3E]"
+                  />
+                  <span className="text-[10px] font-mono text-stone-500">x</span>
+                  <button
+                    type="button"
+                    onClick={() => handleNudgeCoordinate('scale', 0.05)}
+                    className="w-4 h-4 bg-white border border-stone-300 hover:bg-stone-100 rounded-2xs text-[10px] font-bold flex items-center justify-center cursor-pointer"
+                    title="Phóng to +0.05"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="0.50"
+                max="1.80"
+                step="0.02"
+                value={accessoryScale}
+                onChange={(e) => handleUpdateAnchorCoordinate('scale', parseFloat(e.target.value))}
+                className="w-full accent-[#1B4D3E] cursor-pointer"
+              />
+              <div className="flex justify-between text-[9px] text-stone-400">
+                <span>0.50x Thu nhỏ</span>
+                <span>Phóng lớn 1.80x</span>
               </div>
             </div>
           </div>
 
-          <div className="text-[10px] text-stone-500 italic bg-[#FAF7F2] px-2.5 py-1 rounded-xs flex items-center justify-between">
-            <span>* Vị trí gợi ý ban đầu được tính tự động từ bounding box ống tay áo phải ({suggestedAccessoryPos.x}m, {suggestedAccessoryPos.y}m, {suggestedAccessoryPos.z}m).</span>
-            <span>Không làm nạp lại mô hình áo.</span>
+          {/* Footer Coordinates Summary */}
+          <div className="text-[10px] text-stone-600 bg-[#FAF7F2] px-3 py-2 rounded-xs flex flex-wrap items-center justify-between gap-2 border border-[#241E1C]/10 font-mono">
+            <div>
+              <span className="font-semibold text-stone-800 font-sans mr-1">Tọa độ đang áp dụng:</span>
+              <span>X: <strong>{accessoryOffsetX.toFixed(2)}m</strong></span>
+              <span className="mx-1">|</span>
+              <span>Y: <strong>{accessoryOffsetY.toFixed(2)}m</strong></span>
+              <span className="mx-1">|</span>
+              <span>Z: <strong>{accessoryOffsetZ.toFixed(2)}m</strong></span>
+              <span className="mx-1">|</span>
+              <span>Yaw: <strong>{accessoryRotY}°</strong></span>
+              <span className="mx-1">|</span>
+              <span>Roll: <strong>{accessoryRotZ}°</strong></span>
+              <span className="mx-1">|</span>
+              <span>Pitch: <strong>{accessoryRotX}°</strong></span>
+              <span className="mx-1">|</span>
+              <span>Scale: <strong>{accessoryScale.toFixed(2)}x</strong></span>
+            </div>
+            <div className="font-sans text-[#1B4D3E] font-medium text-[11px] ml-auto">
+              ✓ Kéo chỉnh không nạp lại áo · Camera zoom/xoay mượt mà
+            </div>
           </div>
         </div>
       )}
