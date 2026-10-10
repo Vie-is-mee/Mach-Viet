@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GARMENTS_DATA, SHARED_GARMENT_CATEGORIES } from '../data/mockData';
 import { GarmentItem, GarmentCategory } from '../types';
 import { Search, X, Info, Sparkles, Palette, ExternalLink, ShieldAlert, CheckCircle2, AlertCircle, HelpCircle } from 'lucide-react';
@@ -21,6 +21,16 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
     }
     return null;
   });
+
+  // Support Escape key to close detail modal
+  useEffect(() => {
+    if (!activeGarment) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveGarment(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeGarment]);
 
   const categoriesList = [
     { id: 'all', label: 'Tất cả các nhóm' },
@@ -107,15 +117,7 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
             </p>
           </div>
 
-          <div className="text-xs text-[#241E1C]/70 bg-white border border-[#241E1C]/10 p-3 rounded-sm space-y-1">
-            <div className="font-semibold text-[#8B2626] flex items-center gap-1.5">
-              <ShieldAlert className="w-3.5 h-3.5" />
-              <span>Nguyên tắc thông tin của Mạch Việt</span>
-            </div>
-            <p className="text-[11px] leading-relaxed">
-              Tách bạch thông tin lịch sử với ảnh minh họa và gợi ý phối đồ trẻ; nêu rõ nguồn kiểm chứng hoặc ghi chú cần xác minh thêm.
-            </p>
-          </div>
+
         </div>
 
         {/* Filter controls */}
@@ -211,7 +213,15 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
                       src={garment.image}
                       alt={garment.name}
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src.includes('ao_tac') && !target.src.includes('/images/ao_tac_exhibit.jpg')) {
+                          target.src = '/images/ao_tac_exhibit.jpg';
+                        } else if (target.src.includes('ao_tu_than') && !target.src.includes('/images/ao_tu_than')) {
+                          target.src = '/images/ao_tu_than_exhibit.svg';
+                        }
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center text-[#241E1C]/50 space-y-1">
@@ -220,10 +230,7 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
                     </div>
                   )}
 
-                  {/* Disclaimer overlay pill on image */}
-                  <div className="absolute bottom-2 left-2 right-2 bg-[#241E1C]/80 backdrop-blur-xs text-[10px] text-[#FAF7F2] px-2 py-1 rounded-xs truncate">
-                    {garment.imageNote}
-                  </div>
+
 
                   <div className="absolute top-2.5 left-2.5 bg-[#FAF7F2]/90 backdrop-blur-xs px-2.5 py-1 text-[11px] font-semibold text-[#8B2626] border border-[#241E1C]/10">
                     {garment.name}
@@ -320,7 +327,12 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
 
       {/* Comprehensive Academic Source & Detail Modal */}
       {activeGarment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#241E1C]/60 backdrop-blur-xs animate-in fade-in duration-200">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="costume-modal-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#241E1C]/60 backdrop-blur-xs animate-in fade-in duration-200"
+        >
           <div className="bg-[#FAF7F2] border border-[#241E1C]/15 rounded-sm max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl flex flex-col justify-between">
             <div className="p-6 sm:p-8 space-y-6">
               {/* Modal Top Header */}
@@ -329,7 +341,7 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
                   <div className="text-xs font-semibold text-[#8B2626] uppercase tracking-wider">
                     {activeGarment.subName}
                   </div>
-                  <h2 className="font-serif text-2xl sm:text-3xl font-semibold text-[#241E1C] mt-1">
+                  <h2 id="costume-modal-title" className="font-serif text-2xl sm:text-3xl font-semibold text-[#241E1C] mt-1">
                     {activeGarment.name}
                   </h2>
                   <div className="text-xs text-[#241E1C]/70 mt-1">
@@ -344,6 +356,27 @@ export const CostumeExplorer: React.FC<CostumeExplorerProps> = ({
                   <X className="w-6 h-6" />
                 </button>
               </div>
+
+              {/* Garment Exhibit Image Showcase in Modal */}
+              {activeGarment.image && (
+                <div className="relative aspect-[16/9] w-full rounded-sm overflow-hidden border border-[#241E1C]/10 shadow-xs">
+                  <img
+                    src={activeGarment.image}
+                    alt={activeGarment.name}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src.includes('ao_tac') && !target.src.includes('/images/ao_tac_exhibit.jpg')) {
+                        target.src = '/images/ao_tac_exhibit.jpg';
+                      } else if (target.src.includes('ao_tu_than') && !target.src.includes('/images/ao_tu_than')) {
+                        target.src = '/images/ao_tu_than_exhibit.svg';
+                      }
+                    }}
+                  />
+
+                </div>
+              )}
 
               {/* Lịch sử & Bối cảnh truyền thống */}
               <div className="space-y-2">

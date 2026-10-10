@@ -59,18 +59,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           </button>
 
           {/* Zone 2: Navigation Links */}
-          <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm font-medium">
+          <nav className="hidden md:flex items-center gap-3 lg:gap-7 text-xs lg:text-sm font-medium">
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
                   onClick={() => handleSelect(item.id)}
-                  className={`relative py-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                  className={`relative py-1 px-1 whitespace-nowrap shrink-0 transition-colors cursor-pointer rounded-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B2626] ${
                     isActive
                       ? 'text-[#8B2626] font-semibold'
                       : 'text-[#241E1C]/70 hover:text-[#8B2626]'
                   }`}
+                  aria-current={isActive ? 'page' : undefined}
                 >
                   {item.label}
                   {isActive && (

@@ -29,11 +29,7 @@ export const HeroHome: React.FC<HeroHomeProps> = ({
             <div className="lg:col-span-7 space-y-6">
               {/* Unboxed Metadata (Zero-Pill discipline) */}
               <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[#8B2626] font-semibold">
-                <span>Dự án Cổ Phục & Người Trẻ</span>
-                <span aria-hidden="true">·</span>
-                <span>Thế Hệ Z & Gen Alpha</span>
-                <span aria-hidden="true">·</span>
-                <span>Phiên Bản Khung Nền</span>
+                <span>Khám Phá & Định Hình Phong Cách Việt Phục</span>
               </div>
 
               <h1 className="font-serif text-3xl sm:text-5xl lg:text-6xl text-[#241E1C] leading-[1.15] font-semibold tracking-tight text-balance">
@@ -42,52 +38,26 @@ export const HeroHome: React.FC<HeroHomeProps> = ({
               </h1>
 
               <p className="text-base sm:text-lg text-[#241E1C]/80 leading-relaxed max-w-2xl">
-                Mạch Việt ra đời giúp học sinh, sinh viên và bạn trẻ dễ dàng tìm hiểu cấu trúc chuẩn mực của Áo ngũ thân, Áo tấc, Nhật bình... từ đó tự tin phối đồ theo dịp, màu sắc và cá tính riêng mà không sợ sai lệch quy cách.
+                Mạch Việt giúp học sinh, sinh viên và người trẻ dễ dàng tìm hiểu cấu tạo của Áo ngũ thân, Áo tấc, Nhật bình... từ đó tự tin phối đồ theo dịp, màu sắc và cá tính riêng với tư liệu đối chiếu minh bạch.
               </p>
 
-              {/* Action Buttons */}
+              {/* Action Buttons - Clear primary action to start exploring clothing */}
               <div className="flex flex-wrap items-center gap-3 pt-2">
                 <button
                   onClick={() => onNavigate('explore')}
-                  className="px-5 py-3 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs sm:text-sm font-semibold tracking-wide rounded-sm shadow-sm transition-all flex items-center gap-2 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
+                  className="px-6 py-3.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-sm font-semibold tracking-wide rounded-sm shadow-md transition-all flex items-center gap-2 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
                 >
-                  <span>Bắt đầu khám phá</span>
+                  <span>Bắt đầu khám phá y phục</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </button>
 
-                {onOpenPreferenceWizard && (
-                  <button
-                    onClick={onOpenPreferenceWizard}
-                    className="px-5 py-3 bg-white hover:bg-[#FAF7F2] text-[#8B2626] border border-[#8B2626]/40 hover:border-[#8B2626] text-xs sm:text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-2 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
-                  >
-                    <UserCheck className="w-4 h-4 text-[#8B2626]" />
-                    <span>{hasPreferenceProfile ? 'Xem / Chỉnh hồ sơ (5 bước)' : 'Tạo hồ sơ sở thích (5 bước)'}</span>
-                  </button>
-                )}
-
                 <button
                   onClick={() => onNavigate('studio')}
-                  className="px-4 py-3 bg-transparent hover:bg-[#241E1C]/5 text-[#241E1C]/75 hover:text-[#241E1C] text-xs sm:text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-3.5 bg-white hover:bg-stone-50 text-[#241E1C] border border-[#241E1C]/20 text-sm font-semibold tracking-wide rounded-sm transition-all flex items-center gap-2 cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#8B2626]"
                 >
-                  <Palette className="w-4 h-4" />
-                  <span>Vào Studio</span>
+                  <Palette className="w-4 h-4 text-[#8B2626]" />
+                  <span>Vào Studio phối đồ 3D</span>
                 </button>
-              </div>
-
-              {/* Trust/Design principles unboxed list */}
-              <div className="pt-4 border-t border-[#241E1C]/10 grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs text-[#241E1C]/75">
-                <div>
-                  <span className="font-semibold text-[#8B2626] block text-sm font-serif">100% Chuẩn mực</span>
-                  <span>Quy cách cắt may truyền thống</span>
-                </div>
-                <div>
-                  <span className="font-semibold text-[#8B2626] block text-sm font-serif">Định hướng trẻ</span>
-                  <span>Gợi ý phối kỷ yếu, lễ hội</span>
-                </div>
-                <div>
-                  <span className="font-semibold text-[#8B2626] block text-sm font-serif">Không gian 3D</span>
-                  <span>Đang kiến tạo mô đun phối dáng</span>
-                </div>
               </div>
             </div>
 
@@ -98,7 +68,7 @@ export const HeroHome: React.FC<HeroHomeProps> = ({
                   src={HERO_ASSETS.heroBanner}
                   alt="Người trẻ diện trang phục truyền thống Việt Nam thanh lịch"
                   referrerPolicy="no-referrer"
-                  className="w-full h-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[4/5] object-cover transition-transform duration-500 group-hover:scale-[1.02]"
+                  className="w-full h-full aspect-[4/3] sm:aspect-[16/10] lg:aspect-[4/5] object-cover"
                 />
                 {/* Editorial Scrim Overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-[#241E1C]/90 via-[#241E1C]/30 to-transparent flex flex-col justify-end p-6 text-[#FAF7F2]">
@@ -264,7 +234,15 @@ export const HeroHome: React.FC<HeroHomeProps> = ({
                       src={garment.image}
                       alt={garment.name}
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src.includes('ao_tac') && !target.src.includes('/images/ao_tac_exhibit.jpg')) {
+                          target.src = '/images/ao_tac_exhibit.jpg';
+                        } else if (target.src.includes('ao_tu_than') && !target.src.includes('/images/ao_tu_than')) {
+                          target.src = '/images/ao_tu_than_exhibit.svg';
+                        }
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-[#241E1C]/40 text-xs italic">

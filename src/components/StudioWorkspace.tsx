@@ -16,6 +16,7 @@ import {
   AccessoryHeadId,
   AccessoryHandId,
   StudioOutfitState,
+  SavedOutfitItem,
   normalizeGarmentChoice,
 } from '../types';
 import { GlbModelViewer } from './GlbModelViewer';
@@ -37,14 +38,18 @@ import {
   Undo2,
   ShieldCheck,
   Compass,
+  ExternalLink,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface StudioWorkspaceProps {
   initialGarmentId?: string | null;
-  onSavedToLookbook?: (outfitName: string) => void;
+  onSavedToLookbook?: (outfit: SavedOutfitItem | string) => void;
   preferenceProfile: PreferenceProfile | null;
   onOpenPreferenceWizard: () => void;
   onClearPreferenceProfile: () => void;
+  editingOutfit?: SavedOutfitItem | null;
 }
 
 export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
@@ -53,19 +58,42 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   preferenceProfile,
   onOpenPreferenceWizard,
   onClearPreferenceProfile,
+  editingOutfit,
 }) => {
-  // Current outfit configuration
+  // Current outfit configuration (Mặc định Áo Tứ Thân cùng nón lá và quạt theo yêu cầu)
   const [selectedGarmentId, setSelectedGarmentId] = useState<string>(() => {
     if (initialGarmentId) return initialGarmentId;
-    return 'ngu-than-tay-chen';
+    return 'ao-tu-than';
   });
 
-  const [innerLayer, setInnerLayer] = useState<InnerLayerId>('ao-lot-trang');
-  const [bottomLayer, setBottomLayer] = useState<BottomLayerId>('quan-lua-trang');
-  const [selectedColor, setSelectedColor] = useState<string>('#1B4D3E'); // Xanh lục bảo
-  const [accessoryHead, setAccessoryHead] = useState<AccessoryHeadId>('khan-dong');
-  const [accessoryHand, setAccessoryHand] = useState<AccessoryHandId>('quat-nan');
-  const [occasionGoal, setOccasionGoal] = useState<string>('ky_yeu');
+  const [innerLayer, setInnerLayer] = useState<InnerLayerId>(() => {
+    const defaultGarment = initialGarmentId || 'ao-tu-than';
+    const rule = GARMENT_COMPATIBILITY_RULES[defaultGarment];
+    return rule ? rule.defaultLayers.innerLayer : 'yem-dao';
+  });
+  const [bottomLayer, setBottomLayer] = useState<BottomLayerId>(() => {
+    const defaultGarment = initialGarmentId || 'ao-tu-than';
+    const rule = GARMENT_COMPATIBILITY_RULES[defaultGarment];
+    return rule ? rule.defaultLayers.bottomLayer : 'vay-xep-ly';
+  });
+  const [selectedColor, setSelectedColor] = useState<string>('#8B2626'); // Đỏ chu sa
+  const [accessoryHead, setAccessoryHead] = useState<AccessoryHeadId>(() => {
+    const defaultGarment = initialGarmentId || 'ao-tu-than';
+    const rule = GARMENT_COMPATIBILITY_RULES[defaultGarment];
+    return rule ? rule.defaultLayers.accessoryHead : 'non-la';
+  });
+  const [accessoryHand, setAccessoryHand] = useState<AccessoryHandId>(() => {
+    const defaultGarment = initialGarmentId || 'ao-tu-than';
+    const rule = GARMENT_COMPATIBILITY_RULES[defaultGarment];
+    return rule ? rule.defaultLayers.accessoryHand : 'quat-nan';
+  });
+  const [occasionGoal, setOccasionGoal] = useState<string>('dao_pho');
+  const [currentPropsVisibility, setCurrentPropsVisibility] = useState<{ fan?: boolean; hat?: boolean; bag?: boolean }>({
+    fan: true,
+    hat: true,
+    bag: true,
+  });
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState<boolean>(false);
 
   // Interactive UI states
   const [savedSuccessMessage, setSavedSuccessMessage] = useState<string | null>(null);
@@ -92,12 +120,36 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   } | null>(null);
   const [undoToast, setUndoToast] = useState<string | null>(null);
 
-  // Applied Report Toast from Preference Profile
   const [appliedReport, setAppliedReport] = useState<{
     success: string[];
     notices: string[];
     timestamp: string;
   } | null>(null);
+
+  // Restore complete outfit when editingOutfit is provided
+  React.useEffect(() => {
+    if (editingOutfit) {
+      setSelectedGarmentId(editingOutfit.garmentId);
+      setSelectedColor(editingOutfit.selectedColor);
+      setInnerLayer(editingOutfit.innerLayer);
+      setBottomLayer(editingOutfit.bottomLayer);
+      setAccessoryHead(editingOutfit.accessoryHead);
+      setAccessoryHand(editingOutfit.accessoryHand);
+      setOccasionGoal(editingOutfit.occasionGoal);
+      if (editingOutfit.propsVisible) {
+        setCurrentPropsVisibility(editingOutfit.propsVisible);
+      }
+      setIsManualEdited(true);
+      setUndoToast(`Đã khôi phục trọn vẹn bản phối "${editingOutfit.title}" để bạn tiếp tục tinh chỉnh.`);
+    }
+  }, [editingOutfit]);
+
+  // Synchronize when initialGarmentId prop updates from navigation
+  React.useEffect(() => {
+    if (initialGarmentId && initialGarmentId !== selectedGarmentId) {
+      handleSelectGarmentWithCompatibility(initialGarmentId);
+    }
+  }, [initialGarmentId]);
 
   const currentGarment = GARMENTS_DATA.find((g) => g.id === selectedGarmentId) || GARMENTS_DATA[0];
   const currentRule = GARMENT_COMPATIBILITY_RULES[selectedGarmentId] || GARMENT_COMPATIBILITY_RULES['ngu-than-tay-chen'];
@@ -243,13 +295,13 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     // Save history for undo before reset
     setPreviousOutfitState(getCurrentSnapshot());
 
-    setSelectedGarmentId('ngu-than-tay-chen');
-    setInnerLayer('ao-lot-trang');
-    setBottomLayer('quan-lua-trang');
-    setSelectedColor('#1B4D3E');
-    setAccessoryHead('khan-dong');
+    setSelectedGarmentId('ao-tu-than');
+    setInnerLayer('yem-dao');
+    setBottomLayer('vay-xep-ly');
+    setSelectedColor('#8B2626');
+    setAccessoryHead('non-la');
     setAccessoryHand('quat-nan');
-    setOccasionGoal('ky_yeu');
+    setOccasionGoal('dao_pho');
     setIsManualEdited(false);
     setAppliedReport(null);
     setAutoTransitionAlert(null);
@@ -261,14 +313,35 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   const handleSaveDraft = () => {
     const colorName = STUDIO_COLOR_PRESETS.find((c) => c.hex.toLowerCase() === selectedColor.toLowerCase())?.name || 'Màu phối';
-    const outfitSummary = `${currentGarment.name} (${colorName}) - ${preferenceProfile ? preferenceProfile.occasion : 'Phối tự do'}`;
+    const outfitTitle = `${currentGarment.name} (${colorName})`;
+    
+    const savedItem: SavedOutfitItem = {
+      id: editingOutfit?.id || `outfit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: outfitTitle,
+      savedAt: new Date().toLocaleDateString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      garmentId: selectedGarmentId,
+      selectedColor,
+      innerLayer,
+      bottomLayer,
+      accessoryHead,
+      accessoryHand,
+      occasionGoal,
+      propsVisible: currentPropsVisibility,
+    };
+
     if (onSavedToLookbook) {
-      onSavedToLookbook(outfitSummary);
+      onSavedToLookbook(savedItem as any);
     }
-    setSavedSuccessMessage(`Đã ghi nhận bản phối nháp: ${outfitSummary}`);
+    setSavedSuccessMessage(`✓ Đã lưu trọn vẹn bản phối "${outfitTitle}" vào Lookbook.`);
     setTimeout(() => {
       setSavedSuccessMessage(null);
-    }, 4000);
+    }, 4500);
   };
 
   // Resolve metadata for "Các lớp đang phối"
@@ -280,37 +353,32 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* Studio Header & Navigation */}
-      <div className="border-b border-[#241E1C]/10 pb-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      {/* Studio Header & Navigation - Minimalist Style */}
+      <div className="border-b border-[#241E1C]/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[#8B2626] font-semibold">
-            <span>Không Gian Bàn Phối</span>
-            <span aria-hidden="true">·</span>
-            <span className="text-[#9E6E20]">Quy Tắc Tương Thích Lớp Y Phục</span>
-          </div>
-          <h1 className="font-serif text-2xl sm:text-3xl text-[#241E1C] font-semibold mt-1">
-            Studio Phối Dáng Việt Phục
+          <h1 className="font-serif text-2xl sm:text-3xl text-[#241E1C] font-semibold tracking-tight">
+            Studio Phối Dáng
           </h1>
-          <p className="text-xs sm:text-sm text-[#241E1C]/75 mt-1 max-w-2xl">
-            Lựa chọn áo chính, kiểm soát tính tương thích của lớp lót, hạ y và phụ kiện. Hệ thống tự động giữ lại các món hợp lệ và giải thích minh bạch khi có điều chỉnh.
+          <p className="text-xs sm:text-sm text-[#241E1C]/60 mt-0.5">
+            Phối lớp y phục truyền thống & tương tác thời gian thực trên không gian 3D.
           </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={onOpenPreferenceWizard}
-            className="px-3.5 py-2 text-xs font-semibold text-[#8B2626] bg-[#8B2626]/10 hover:bg-[#8B2626]/20 border border-[#8B2626]/30 rounded-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-1.5 text-xs font-medium text-[#8B2626] bg-[#8B2626]/5 hover:bg-[#8B2626]/10 border border-[#8B2626]/20 rounded-sm transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>{preferenceProfile ? 'Chỉnh sửa hồ sơ (5 bước)' : 'Tạo hồ sơ sở thích (5 bước)'}</span>
+            <span>{preferenceProfile ? 'Hồ sơ sở thích' : 'Tạo hồ sơ sở thích'}</span>
           </button>
 
           <button
             onClick={() => setConfirmResetOpen(true)}
-            className="px-3 py-2 text-xs font-medium text-[#241E1C]/70 hover:text-[#8B2626] border border-[#241E1C]/15 rounded-sm bg-white hover:bg-[#FAF7F2] transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-1.5 text-xs font-medium text-[#241E1C]/70 hover:text-[#8B2626] border border-[#241E1C]/15 rounded-sm bg-white hover:bg-[#FAF7F2] transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>Làm mới bàn phối</span>
+            <span>Làm mới</span>
           </button>
         </div>
       </div>
@@ -325,10 +393,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 Xác nhận làm mới bàn phối?
               </h3>
               <p className="text-[#241E1C]/80 leading-relaxed">
-                Thao tác này sẽ đặt lại các lựa chọn áo chính, lớp lót, hạ y và phụ kiện trên bàn phối về mặc định ban đầu.
-                <strong className="block text-[#1B4D3E] mt-1 font-medium">
-                  ✓ Hồ sơ sở thích 5 bước đã lưu của bạn sẽ KHÔNG bị ảnh hưởng hay xóa bỏ.
-                </strong>
+                Thao tác này sẽ đặt lại các lựa chọn áo chính, lớp lót, hạ y và phụ kiện trên bàn phối về mặc định.
               </p>
             </div>
           </div>
@@ -352,124 +417,70 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         </div>
       )}
 
-      {/* USER PREFERENCE PROFILE SUMMARY STRIP WITH EXPLICIT "ÁP DỤNG" BUTTON */}
-      {preferenceProfile ? (
-        <div className="p-4 bg-white border border-[#8B2626]/25 rounded-sm shadow-xs space-y-3.5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#241E1C]/5 pb-2.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#1B4D3E]" />
-              <span className="text-xs font-bold uppercase tracking-wider text-[#8B2626]">
-                Hồ sơ sở thích đã lưu
+      {/* MINIMALIST PREFERENCE PROFILE STRIP */}
+      {preferenceProfile && (
+        <div className="p-2.5 px-3.5 bg-white border border-[#241E1C]/10 rounded-sm shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="w-2 h-2 rounded-full bg-[#1B4D3E]" />
+            <span className="font-medium text-[#241E1C]">Hồ sơ sở thích:</span>
+            <span className="px-2 py-0.5 bg-[#FAF7F2] text-[#8B2626] font-medium rounded-xs border border-[#241E1C]/10 text-[11px]">
+              {getProfileGarmentLabel()}
+            </span>
+            <span className="px-2 py-0.5 bg-[#FAF7F2] text-[#241E1C]/70 rounded-xs border border-[#241E1C]/10 text-[11px]">
+              {preferenceProfile.occasion}
+            </span>
+            <div className="flex items-center gap-1">
+              {preferenceProfile.likedColors.map((hex) => (
+                <span
+                  key={hex}
+                  className="w-3 h-3 rounded-xs border border-black/15 inline-block"
+                  style={{ backgroundColor: hex }}
+                  title={STUDIO_COLOR_PRESETS.find((c) => c.hex.toLowerCase() === hex.toLowerCase())?.name}
+                />
+              ))}
+            </div>
+            {isManualEdited && (
+              <span className="text-[10px] text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-xs">
+                Đang tinh chỉnh tay
               </span>
-              <span className="text-[11px] text-[#241E1C]/50">
-                (Lưu trên trình duyệt)
-              </span>
-              {isManualEdited && (
-                <span className="text-[10px] text-[#9E6E20] bg-[#D4A054]/15 px-2 py-0.5 rounded-xs font-medium">
-                  Đang chỉnh tay · Hồ sơ gốc vẫn giữ nguyên
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2.5">
-              <button
-                type="button"
-                onClick={handleApplyPreferences}
-                className="px-3 py-1.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs font-semibold rounded-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.98]"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-[#D4A054]" />
-                <span>Áp dụng sở thích vào bộ phối</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onOpenPreferenceWizard}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#8B2626] hover:underline cursor-pointer"
-              >
-                <Edit3 className="w-3 h-3" />
-                <span>Sửa hồ sơ</span>
-              </button>
-
-              <span className="text-[#241E1C]/20">|</span>
-
-              <button
-                type="button"
-                onClick={() => setConfirmDeleteOpen(true)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-[#241E1C]/60 hover:text-[#8B2626] cursor-pointer"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Xóa</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Profile parameters grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div>
-              <span className="text-[#241E1C]/60 block text-[11px]">Dịp dự kiến:</span>
-              <span className="font-semibold text-[#241E1C]">{preferenceProfile.occasion}</span>
-            </div>
-
-            <div>
-              <span className="text-[#241E1C]/60 block text-[11px]">Dòng y phục:</span>
-              <span className="font-semibold text-[#8B2626]">
-                {getProfileGarmentLabel()}
-              </span>
-            </div>
-
-            <div>
-              <span className="text-[#241E1C]/60 block text-[11px]">Định hướng phong cách:</span>
-              <span className="font-medium text-[#241E1C]">
-                {preferenceProfile.styleOrientation === 'traditional' ? 'Giữ chuẩn truyền thống' :
-                 preferenceProfile.styleOrientation === 'balanced' ? 'Cân bằng truyền thống-hiện đại' : 'Biến tấu trẻ trung'}
-              </span>
-            </div>
-
-            <div>
-              <span className="text-[#241E1C]/60 block text-[11px]">Bảng màu quan tâm:</span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                {preferenceProfile.likedColors.map((hex) => (
-                  <span
-                    key={hex}
-                    className="w-3.5 h-3.5 rounded-xs border border-black/15 inline-block"
-                    style={{ backgroundColor: hex }}
-                    title={STUDIO_COLOR_PRESETS.find((c) => c.hex.toLowerCase() === hex.toLowerCase())?.name}
-                  />
-                ))}
-                {preferenceProfile.avoidedColors.length > 0 && (
-                  <span className="text-[10px] text-[#8B2626] ml-1">
-                    (Tránh {preferenceProfile.avoidedColors.length} màu)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Phụ kiện & Giới hạn từ hồ sơ */}
-          <div className="pt-2 border-t border-[#241E1C]/5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[#241E1C]/75">
-            <div>
-              <strong className="text-[#241E1C]">Phụ kiện lưu ý:</strong>{' '}
-              {preferenceProfile.accessories.length > 0 ? preferenceProfile.accessories.join(', ') : 'Tự nhiên'}
-            </div>
-            {preferenceProfile.culturalBoundaries.length > 0 && (
-              <div className="text-[#8B2626]">
-                <strong>Giới hạn tránh:</strong> {preferenceProfile.culturalBoundaries.join(', ')}
-              </div>
             )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleApplyPreferences}
+              className="px-2.5 py-1 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-[11px] font-medium rounded-xs transition-colors flex items-center gap-1 cursor-pointer"
+            >
+              <Sparkles className="w-3 h-3 text-[#D4A054]" />
+              <span>Áp dụng vào phối</span>
+            </button>
+            <button
+              type="button"
+              onClick={onOpenPreferenceWizard}
+              className="text-[11px] text-[#241E1C]/60 hover:text-[#8B2626] cursor-pointer"
+            >
+              Sửa
+            </button>
+            <span className="text-[#241E1C]/20">|</span>
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteOpen(true)}
+              className="text-[11px] text-[#241E1C]/40 hover:text-red-700 cursor-pointer"
+            >
+              Xóa
+            </button>
           </div>
 
           {/* Inline confirmation to clear profile */}
           {confirmDeleteOpen && (
-            <div className="mt-2 p-3 bg-[#FAF7F2] border border-[#8B2626]/30 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-              <div className="text-[#8B2626] font-medium flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>Bạn có chắc muốn xóa hồ sơ sở thích này để thiết lập lại từ đầu không?</span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="w-full mt-1 p-2 bg-[#FAF7F2] border border-[#8B2626]/20 rounded-xs flex items-center justify-between gap-2 text-xs">
+              <span className="text-[#8B2626] text-[11px]">Xác nhận xóa hồ sơ sở thích đã lưu?</span>
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setConfirmDeleteOpen(false)}
-                  className="px-2.5 py-1 bg-white border border-[#241E1C]/20 rounded-xs text-[#241E1C] cursor-pointer hover:bg-gray-50"
+                  className="px-2 py-0.5 bg-white border border-[#241E1C]/15 rounded-xs text-[11px]"
                 >
                   Hủy
                 </button>
@@ -480,32 +491,13 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     setConfirmDeleteOpen(false);
                     setAppliedReport(null);
                   }}
-                  className="px-2.5 py-1 bg-[#8B2626] text-white rounded-xs font-semibold cursor-pointer hover:bg-[#741E1E]"
+                  className="px-2 py-0.5 bg-[#8B2626] text-white rounded-xs text-[11px] font-medium"
                 >
-                  Xác nhận xóa
+                  Xóa
                 </button>
               </div>
             </div>
           )}
-        </div>
-      ) : (
-        <div className="p-4 bg-white border border-dashed border-[#8B2626]/30 rounded-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-0.5 text-xs">
-            <div className="font-semibold text-[#8B2626] flex items-center gap-1.5">
-              <UserCheck className="w-4 h-4" />
-              <span>Chưa thiết lập hồ sơ sở thích cá nhân</span>
-            </div>
-            <p className="text-[#241E1C]/75">
-              Dành 1 phút trả lời 5 câu hỏi ngắn để tự động đề xuất dòng áo (Áo dài, Tứ thân, Ngũ thân, Nhật Bình) và màu sắc tương thích.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onOpenPreferenceWizard}
-            className="px-4 py-2 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs font-semibold rounded-sm whitespace-nowrap cursor-pointer transition-colors shrink-0 shadow-xs"
-          >
-            Tạo hồ sơ sở thích (5 bước)
-          </button>
         </div>
       )}
 
@@ -545,7 +537,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </div>
           </div>
 
-          <div className="space-y-1.5 pl-6 border-l-2 border-amber-300/80 text-[11px] text-amber-900/90">
+          <div className="space-y-1.5 p-3 bg-amber-100/50 rounded-xs border border-amber-200/80 text-[11px] text-amber-900/90">
             {autoTransitionAlert.changedItems.map((c, idx) => (
               <div key={idx} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-2">
                 <span className="font-semibold text-amber-950">{c.slotName}:</span>
@@ -639,24 +631,21 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       {/* 3-Column Studio Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        {/* Left Column: Tủ đồ & Phân lớp y phục (4 cols) */}
-        <div className="lg:col-span-4 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-6">
+        {/* Left Column: Tủ đồ & Phân lớp y phục (4 cols, order-2 on mobile so 3D preview is first) */}
+        <div className="lg:col-span-4 order-2 lg:order-1 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-5">
           <div className="border-b border-[#241E1C]/10 pb-3 flex items-center justify-between">
-            <h2 className="font-serif text-base font-semibold text-[#241E1C] flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#8B2626]" />
-              <span>1. Tủ Phối Phân Lớp</span>
+            <h2 className="font-serif text-sm font-semibold uppercase tracking-wider text-xs text-[#241E1C] flex items-center gap-2">
+              <Layers className="w-3.5 h-3.5 text-[#8B2626]" />
+              <span>Phân Lớp Y Phục</span>
             </h2>
-            <span className="text-[11px] text-[#241E1C]/50">4 Tầng lớp quy chuẩn</span>
+            <span className="text-[11px] text-[#241E1C]/40">Quy chuẩn</span>
           </div>
 
           {/* Layer A: Thân áo chính */}
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#241E1C] block">
-                Thân áo chính:
-              </label>
-              <span className="text-[10px] text-[#241E1C]/50">5 Mẫu y phục</span>
-            </div>
+            <label className="text-xs font-medium text-[#241E1C]/80 block">
+              Thân áo chính:
+            </label>
 
             <div className="space-y-1.5">
               {GARMENTS_DATA.map((g) => {
@@ -701,65 +690,56 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
           {/* Layer B: Lớp áo lót trong */}
           <div className="space-y-2 pt-2 border-t border-[#241E1C]/10">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#241E1C] block">
-                Lớp lót bên trong:
-              </label>
-              <span className="text-[10px] text-[#241E1C]/50">Áo lót / Yếm</span>
-            </div>
+            <label className="text-xs font-medium text-[#241E1C]/80 block">
+              Lớp lót bên trong:
+            </label>
 
-            <div className="space-y-2 text-xs">
+            <div className="space-y-1.5 text-xs">
               {INNER_LAYER_OPTIONS.map((item) => {
                 const isSelected = innerLayer === item.id;
                 const compat = checkLayerCompatibility(selectedGarmentId, 'innerLayer', item.id);
 
                 return (
-                  <div key={item.id} className="space-y-1">
-                    <button
-                      type="button"
-                      disabled={!compat.isCompatible}
-                      onClick={() => {
-                        if (compat.isCompatible) {
-                          setInnerLayer(item.id);
-                          setIsManualEdited(true);
-                        }
-                      }}
-                      className={`w-full p-2 rounded-sm text-left transition-colors flex items-center justify-between border ${
-                        !compat.isCompatible
-                          ? 'opacity-40 cursor-not-allowed bg-stone-100 border-dashed border-stone-300 text-stone-500'
-                          : isSelected
-                          ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
-                          : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span>{item.name}</span>
-                          {compat.isRecommended && compat.isCompatible && (
-                            <span className="text-[9px] bg-[#1B4D3E]/10 text-[#1B4D3E] px-1 py-0.2 rounded-xs font-semibold">
-                              Khuyên dùng
-                            </span>
-                          )}
-                          {!compat.isCompatible && (
-                            <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.2 rounded-xs font-semibold">
-                              Không tương thích
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-stone-500">{item.subName}</div>
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={!compat.isCompatible}
+                    title={!compat.isCompatible ? compat.reason : undefined}
+                    onClick={() => {
+                      if (compat.isCompatible) {
+                        setInnerLayer(item.id);
+                        setIsManualEdited(true);
+                      }
+                    }}
+                    className={`w-full p-2 rounded-sm text-left transition-colors flex items-center justify-between border ${
+                      !compat.isCompatible
+                        ? 'opacity-35 cursor-not-allowed bg-stone-50 border-stone-200 text-stone-400'
+                        : isSelected
+                        ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
+                        : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span>{item.name}</span>
+                        {compat.isRecommended && compat.isCompatible && (
+                          <span className="text-[9px] bg-[#1B4D3E]/10 text-[#1B4D3E] px-1 py-0.2 rounded-xs font-medium">
+                            Khuyên dùng
+                          </span>
+                        )}
+                        {!compat.isCompatible && (
+                          <span className="text-[9px] text-stone-400">
+                            Không hỗ trợ
+                          </span>
+                        )}
                       </div>
+                      <div className="text-[10px] text-stone-500">{item.subName}</div>
+                    </div>
 
-                      {isSelected && compat.isCompatible && (
-                        <Check className="w-3.5 h-3.5 text-[#8B2626] shrink-0" />
-                      )}
-                    </button>
-
-                    {!compat.isCompatible && (
-                      <div className="text-[10px] text-stone-500 pl-2 italic">
-                        ↳ {compat.reason}
-                      </div>
+                    {isSelected && compat.isCompatible && (
+                      <Check className="w-3.5 h-3.5 text-[#8B2626] shrink-0" />
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -767,65 +747,56 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
           {/* Layer C: Quần / Xiêm */}
           <div className="space-y-2 pt-2 border-t border-[#241E1C]/10">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-[#241E1C] block">
-                Hạ y (Quần lụa / Váy):
-              </label>
-              <span className="text-[10px] text-[#241E1C]/50">3 Mẫu hạ y</span>
-            </div>
+            <label className="text-xs font-medium text-[#241E1C]/80 block">
+              Hạ y (Quần lụa / Váy):
+            </label>
 
-            <div className="space-y-2 text-xs">
+            <div className="space-y-1.5 text-xs">
               {BOTTOM_LAYER_OPTIONS.map((item) => {
                 const isSelected = bottomLayer === item.id;
                 const compat = checkLayerCompatibility(selectedGarmentId, 'bottomLayer', item.id);
 
                 return (
-                  <div key={item.id} className="space-y-1">
-                    <button
-                      type="button"
-                      disabled={!compat.isCompatible}
-                      onClick={() => {
-                        if (compat.isCompatible) {
-                          setBottomLayer(item.id);
-                          setIsManualEdited(true);
-                        }
-                      }}
-                      className={`w-full p-2 rounded-sm text-left transition-colors flex items-center justify-between border ${
-                        !compat.isCompatible
-                          ? 'opacity-40 cursor-not-allowed bg-stone-100 border-dashed border-stone-300 text-stone-500'
-                          : isSelected
-                          ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
-                          : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center gap-1.5">
-                          <span>{item.name}</span>
-                          {compat.isRecommended && compat.isCompatible && (
-                            <span className="text-[9px] bg-[#1B4D3E]/10 text-[#1B4D3E] px-1 py-0.2 rounded-xs font-semibold">
-                              Khuyên dùng
-                            </span>
-                          )}
-                          {!compat.isCompatible && (
-                            <span className="text-[9px] bg-red-100 text-red-700 px-1 py-0.2 rounded-xs font-semibold">
-                              Không tương thích
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-[10px] text-stone-500">{item.subName}</div>
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={!compat.isCompatible}
+                    title={!compat.isCompatible ? compat.reason : undefined}
+                    onClick={() => {
+                      if (compat.isCompatible) {
+                        setBottomLayer(item.id);
+                        setIsManualEdited(true);
+                      }
+                    }}
+                    className={`w-full p-2 rounded-sm text-left transition-colors flex items-center justify-between border ${
+                      !compat.isCompatible
+                        ? 'opacity-35 cursor-not-allowed bg-stone-50 border-stone-200 text-stone-400'
+                        : isSelected
+                        ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
+                        : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span>{item.name}</span>
+                        {compat.isRecommended && compat.isCompatible && (
+                          <span className="text-[9px] bg-[#1B4D3E]/10 text-[#1B4D3E] px-1 py-0.2 rounded-xs font-medium">
+                            Khuyên dùng
+                          </span>
+                        )}
+                        {!compat.isCompatible && (
+                          <span className="text-[9px] text-stone-400">
+                            Không hỗ trợ
+                          </span>
+                        )}
                       </div>
+                      <div className="text-[10px] text-stone-500">{item.subName}</div>
+                    </div>
 
-                      {isSelected && compat.isCompatible && (
-                        <Check className="w-3.5 h-3.5 text-[#8B2626] shrink-0" />
-                      )}
-                    </button>
-
-                    {!compat.isCompatible && (
-                      <div className="text-[10px] text-stone-500 pl-2 italic">
-                        ↳ {compat.reason}
-                      </div>
+                    {isSelected && compat.isCompatible && (
+                      <Check className="w-3.5 h-3.5 text-[#8B2626] shrink-0" />
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -833,12 +804,12 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
           {/* Layer D: Phụ kiện */}
           <div className="space-y-3 pt-2 border-t border-[#241E1C]/10">
-            <label className="text-xs font-semibold text-[#241E1C] block">
+            <label className="text-xs font-medium text-[#241E1C]/80 block">
               Phụ kiện kèm theo:
             </label>
             <div className="space-y-3 text-xs">
               <div>
-                <span className="text-[#241E1C]/70 block mb-1">Khăn đội đầu:</span>
+                <span className="text-[#241E1C]/60 text-[11px] block mb-1">Khăn đội đầu:</span>
                 <div className="grid grid-cols-1 gap-1.5">
                   {ACCESSORY_HEAD_OPTIONS.map((item) => {
                     const isSelected = accessoryHead === item.id;
@@ -849,6 +820,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         key={item.id}
                         type="button"
                         disabled={!compat.isCompatible}
+                        title={!compat.isCompatible ? compat.reason : undefined}
                         onClick={() => {
                           if (compat.isCompatible) {
                             setAccessoryHead(item.id);
@@ -857,7 +829,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         }}
                         className={`p-1.5 px-2.5 rounded-sm text-left transition-colors flex items-center justify-between border text-[11px] ${
                           !compat.isCompatible
-                            ? 'opacity-40 cursor-not-allowed bg-stone-100 border-dashed border-stone-300 text-stone-500'
+                            ? 'opacity-35 cursor-not-allowed bg-stone-50 border-stone-200 text-stone-400'
                             : isSelected
                             ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
                             : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
@@ -866,7 +838,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         <span>{item.name}</span>
                         {isSelected && compat.isCompatible && <Check className="w-3 h-3 text-[#8B2626]" />}
                         {!compat.isCompatible && (
-                          <span className="text-[9px] text-red-600">Không hỗ trợ</span>
+                          <span className="text-[9px] text-stone-400">Không hỗ trợ</span>
                         )}
                       </button>
                     );
@@ -875,7 +847,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               </div>
 
               <div>
-                <span className="text-[#241E1C]/70 block mb-1">Đồ cầm tay:</span>
+                <span className="text-[#241E1C]/60 text-[11px] block mb-1">Đồ cầm tay:</span>
                 <div className="grid grid-cols-1 gap-1.5">
                   {ACCESSORY_HAND_OPTIONS.map((item) => {
                     const isSelected = accessoryHand === item.id;
@@ -886,6 +858,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         key={item.id}
                         type="button"
                         disabled={!compat.isCompatible}
+                        title={!compat.isCompatible ? compat.reason : undefined}
                         onClick={() => {
                           if (compat.isCompatible) {
                             setAccessoryHand(item.id);
@@ -894,7 +867,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         }}
                         className={`p-1.5 px-2.5 rounded-sm text-left transition-colors flex items-center justify-between border text-[11px] ${
                           !compat.isCompatible
-                            ? 'opacity-40 cursor-not-allowed bg-stone-100 border-dashed border-stone-300 text-stone-500'
+                            ? 'opacity-35 cursor-not-allowed bg-stone-50 border-stone-200 text-stone-400'
                             : isSelected
                             ? 'border-2 border-[#8B2626] bg-[#8B2626]/5 text-[#8B2626] font-medium'
                             : 'border border-[#241E1C]/15 bg-white text-[#241E1C]/80 hover:bg-stone-50 cursor-pointer'
@@ -903,7 +876,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         <span>{item.name}</span>
                         {isSelected && compat.isCompatible && <Check className="w-3 h-3 text-[#8B2626]" />}
                         {!compat.isCompatible && (
-                          <span className="text-[9px] text-red-600">Không hỗ trợ</span>
+                          <span className="text-[9px] text-stone-400">Không hỗ trợ</span>
                         )}
                       </button>
                     );
@@ -914,56 +887,40 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Center Column: Sân khấu dựng hình Mannequin Preview (5 cols) */}
-        <div className="lg:col-span-5 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-4">
+        {/* Center Column: Sân khấu dựng hình Mannequin Preview (5 cols, order-1 on mobile so 3D model is visible first) */}
+        <div className="lg:col-span-5 order-1 lg:order-2 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-4">
           <div className="border-b border-[#241E1C]/10 pb-3 flex items-center justify-between">
-            <h2 className="font-serif text-base font-semibold text-[#241E1C] flex items-center gap-2">
-              <Palette className="w-4 h-4 text-[#8B2626]" />
-              <span>2. Khung Bàn Dựng Studio</span>
+            <h2 className="font-serif text-sm font-semibold uppercase tracking-wider text-xs text-[#241E1C] flex items-center gap-2">
+              <Palette className="w-3.5 h-3.5 text-[#8B2626]" />
+              <span>Không Gian Trực Quan</span>
             </h2>
-            <span className="text-[10px] uppercase font-bold tracking-wider text-[#8B2626] bg-[#8B2626]/10 px-2 py-0.5 rounded-xs">
-              {currentGarment.category === 'ao_tu_than' ? 'Phom Áo Tứ Thân' :
-               currentGarment.category === 'ao_nhat_binh' ? 'Phom Nhật Bình' :
-               currentGarment.category === 'ao_dai' ? 'Phom Áo Dài' : 'Phom Ngũ Thân'}
+            <span className="text-[11px] font-medium text-[#8B2626] bg-[#8B2626]/10 px-2 py-0.5 rounded-xs">
+              {currentGarment.name}
             </span>
           </div>
 
-          {/* Color Palette Selector */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-[#241E1C]">Sắc độ tà áo:</span>
-              <span className="text-[#241E1C]/60 text-[11px]">
-                {STUDIO_COLOR_PRESETS.find((c) => c.hex.toLowerCase() === selectedColor.toLowerCase())?.name || selectedColor}
-              </span>
-            </div>
+          {/* Color Palette Selector - Minimalist dots */}
+          <div className="flex items-center justify-between text-xs py-1 border-b border-[#241E1C]/5 pb-2.5">
+            <span className="text-[#241E1C]/70 font-medium">Sắc độ tà áo:</span>
             <div className="flex items-center gap-2">
               {STUDIO_COLOR_PRESETS.map((c) => {
                 const isSelected = selectedColor.toLowerCase() === c.hex.toLowerCase();
-                const isLikedInProfile = preferenceProfile?.likedColors.some(
-                  (lk) => lk.toLowerCase() === c.hex.toLowerCase()
-                );
-                const isAvoidedInProfile = preferenceProfile?.avoidedColors.some(
-                  (av) => av.toLowerCase() === c.hex.toLowerCase()
-                );
-
                 return (
                   <button
                     key={c.hex}
+                    type="button"
                     onClick={() => {
                       setSelectedColor(c.hex);
                       setIsManualEdited(true);
                     }}
-                    title={`${c.name} - ${c.note}${isLikedInProfile ? ' (Thích trong hồ sơ)' : ''}${isAvoidedInProfile ? ' (Tránh trong hồ sơ)' : ''}`}
-                    className={`w-7 h-7 rounded-sm border transition-transform cursor-pointer flex items-center justify-center relative ${
-                      isSelected ? 'scale-110 ring-2 ring-[#8B2626] border-white' : 'border-black/10'
+                    title={`${c.name} - ${c.note}`}
+                    className={`w-6 h-6 rounded-full border transition-all cursor-pointer flex items-center justify-center ${
+                      isSelected ? 'ring-2 ring-offset-2 ring-[#8B2626] scale-110 border-white' : 'border-black/15 hover:scale-105'
                     }`}
                     style={{ backgroundColor: c.hex }}
                   >
                     {isSelected && (
-                      <Check className={`w-3.5 h-3.5 ${c.hex === '#EAE6DF' ? 'text-black' : 'text-white'}`} />
-                    )}
-                    {isLikedInProfile && !isSelected && (
-                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#1B4D3E] border border-white" />
+                      <Check className={`w-3 h-3 ${c.hex === '#EAE6DF' ? 'text-black' : 'text-white'}`} />
                     )}
                   </button>
                 );
@@ -976,24 +933,36 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             currentGarmentId={selectedGarmentId}
             currentGarmentName={currentGarment.name}
             onSyncGarment={handleSelectGarmentWithCompatibility}
+            selectedHeadAccessory={accessoryHead}
+            selectedHandAccessory={accessoryHand}
+            externalPropsVisibility={currentPropsVisibility}
+            onPropsVisibilityChange={(props) => setCurrentPropsVisibility(props)}
           />
+
+          {/* Mobile quick save button */}
+          <button
+            type="button"
+            onClick={handleSaveDraft}
+            className="lg:hidden w-full py-2.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs active:scale-98"
+          >
+            <BookmarkPlus className="w-4 h-4" />
+            <span>Lưu bản phối này vào Lookbook</span>
+          </button>
         </div>
 
-        {/* Right Column: Đánh giá dịp & Đề xuất quy cách (3 cols) */}
-        <div className="lg:col-span-3 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-6">
-          <div className="border-b border-[#241E1C]/10 pb-3">
-            <h2 className="font-serif text-base font-semibold text-[#241E1C]">
-              3. Định Hình Dịp & Bản Phối
+        {/* Right Column: Định hình dịp & Bản phối (3 cols, order-3) */}
+        <div className="lg:col-span-3 order-3 lg:order-3 bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-5">
+          <div className="border-b border-[#241E1C]/10 pb-3 flex items-center justify-between">
+            <h2 className="font-serif text-sm font-semibold uppercase tracking-wider text-xs text-[#241E1C]">
+              Bản Phối & Bối Cảnh
             </h2>
-            <p className="text-[11px] text-[#241E1C]/60 mt-0.5">
-              Kiểm tra tính phù hợp bối cảnh
-            </p>
+            <span className="text-[11px] text-[#241E1C]/40">Thiết lập</span>
           </div>
 
           {/* Occasion selector */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-[#241E1C] block">
-              Dịp xuất hiện dự kiến:
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-[#241E1C]/75 block">
+              Dịp xuất hiện:
             </label>
             <select
               value={occasionGoal}
@@ -1011,172 +980,133 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </select>
           </div>
 
-          {/* Current Outfit Spec Card */}
-          <div className="bg-[#FAF7F2] p-3.5 rounded-sm border border-[#241E1C]/10 space-y-2 text-xs">
-            <div className="font-semibold text-[#8B2626] font-serif">
-              Quy chuẩn phối đồ hiện thời:
+          {/* Current Outfit Spec Card - Minimalist */}
+          <div className="bg-[#FAF7F2] p-3 rounded-sm border border-[#241E1C]/5 space-y-2 text-xs">
+            <div className="font-semibold text-[#8B2626] font-serif text-[11px] uppercase tracking-wider">
+              Chi tiết các lớp
             </div>
-            <div className="space-y-1 text-[#241E1C]/80 text-[11px]">
-              <div><strong>Áo chính:</strong> {currentGarment.name}</div>
-              <div><strong>Lớp lót:</strong> {currentInnerMeta?.name}</div>
-              <div><strong>Hạ y:</strong> {currentBottomMeta?.name}</div>
-              <div><strong>Khăn:</strong> {currentHeadMeta?.name}</div>
-              <div><strong>Cầm tay:</strong> {currentHandMeta?.name}</div>
+            <div className="space-y-1.5 text-[#241E1C]/80 text-[11px]">
+              <div className="flex justify-between items-center"><span className="text-[#241E1C]/50">Áo chính:</span> <span className="font-medium text-[#241E1C]">{currentGarment.name}</span></div>
+              <div className="flex justify-between items-center"><span className="text-[#241E1C]/50">Lớp lót:</span> <span className="font-medium text-[#241E1C]">{currentInnerMeta?.name}</span></div>
+              <div className="flex justify-between items-center"><span className="text-[#241E1C]/50">Hạ y:</span> <span className="font-medium text-[#241E1C]">{currentBottomMeta?.name}</span></div>
+              <div className="flex justify-between items-center"><span className="text-[#241E1C]/50">Khăn:</span> <span className="font-medium text-[#241E1C]">{currentHeadMeta?.name}</span></div>
+              <div className="flex justify-between items-center"><span className="text-[#241E1C]/50">Cầm tay:</span> <span className="font-medium text-[#241E1C]">{currentHandMeta?.name}</span></div>
             </div>
           </div>
 
-          {/* Academic Verification status box */}
-          <div className="border border-[#241E1C]/10 p-3.5 rounded-sm bg-white space-y-2 text-xs">
-            <div className="flex items-center gap-1.5 font-semibold text-xs">
-              {currentRule.culturalNotes.academicStatus === 'verified_convention' ? (
-                <>
-                  <ShieldCheck className="w-4 h-4 text-[#1B4D3E]" />
-                  <span className="text-[#1B4D3E]">Quy cách y phục chuẩn mực</span>
-                </>
-              ) : (
-                <>
-                  <Compass className="w-4 h-4 text-[#9E6E20]" />
-                  <span className="text-[#9E6E20]">Gợi ý thiết kế thử nghiệm</span>
-                </>
-              )}
+          {/* Cultural context card - Minimalist */}
+          <div className="p-3 bg-white rounded-sm text-xs space-y-1.5 border border-[#241E1C]/10">
+            <div className="flex items-center gap-1.5 font-medium text-xs text-[#241E1C]/80">
+              <Compass className="w-3.5 h-3.5 text-[#8B2626]" />
+              <span>Ghi chú bối cảnh</span>
             </div>
-
-            <p className="text-[11px] text-[#241E1C]/75 leading-relaxed">
+            <p className="text-[11px] text-[#241E1C]/70 leading-relaxed">
               {currentRule.culturalNotes.summary}
             </p>
-            <div className="text-[10px] text-stone-500 pt-1 border-t border-[#241E1C]/5">
-              <strong>Ghi chú tư liệu:</strong> {currentRule.culturalNotes.sourceNotice}
-            </div>
           </div>
 
           {/* Save Action */}
           <button
             onClick={handleSaveDraft}
-            className="w-full py-2.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+            className="w-full py-2.5 bg-[#8B2626] hover:bg-[#741E1E] text-[#FAF7F2] text-xs font-semibold rounded-sm transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8B2626]"
           >
             <BookmarkPlus className="w-4 h-4" />
-            <span>Lưu bản phối này vào Lookbook</span>
+            <span>Lưu bản phối vào Lookbook</span>
           </button>
         </div>
 
       </div>
 
-      {/* DEDICATED TECHNICAL & CULTURAL INSPECTION SECTION: "CÁC LỚP ĐANG PHỐI" */}
-      <div className="bg-white p-5 rounded-sm border border-[#241E1C]/10 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#241E1C]/10 pb-3">
-          <div>
-            <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-[#8B2626] font-semibold">
-              <span>Bảng Kiểm Tra Kỹ Thuật</span>
-              <span aria-hidden="true">·</span>
-              <span className="text-stone-500">Mã Dữ Liệu & Quy Cách</span>
+      {/* Discreet footer inspection */}
+      <div className="pt-2 flex flex-col items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setShowTechnicalDetails(!showTechnicalDetails)}
+          className="text-xs text-[#241E1C]/50 hover:text-[#241E1C] flex items-center gap-1.5 py-1.5 px-3 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+        >
+          <span>Thông số kỹ thuật</span>
+          {showTechnicalDetails ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </button>
+
+        {showTechnicalDetails && (
+          <div className="w-full bg-white p-4 rounded-sm border border-[#241E1C]/10 animate-in fade-in space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2.5 text-xs">
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Áo chính</span>
+                <div className="font-medium text-[#241E1C] truncate" title={currentGarment.name}>
+                  {currentGarment.name}
+                </div>
+                <code className="text-[10px] font-mono text-[#8B2626] bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {selectedGarmentId}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Lớp lót</span>
+                <div className="font-medium text-[#241E1C] truncate" title={currentInnerMeta?.name}>
+                  {currentInnerMeta?.name}
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {innerLayer}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Hạ y</span>
+                <div className="font-medium text-[#241E1C] truncate" title={currentBottomMeta?.name}>
+                  {currentBottomMeta?.name}
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {bottomLayer}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Khăn</span>
+                <div className="font-medium text-[#241E1C] truncate" title={currentHeadMeta?.name}>
+                  {currentHeadMeta?.name}
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {accessoryHead}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Cầm tay</span>
+                <div className="font-medium text-[#241E1C] truncate" title={currentHandMeta?.name}>
+                  {currentHandMeta?.name}
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {accessoryHand}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Màu</span>
+                <div className="font-medium text-[#241E1C] flex items-center gap-1.5 truncate">
+                  <span
+                    className="w-2 h-2 rounded-full border border-black/15 shrink-0 inline-block"
+                    style={{ backgroundColor: selectedColor }}
+                  />
+                  <span className="truncate">{currentColorMeta?.name || selectedColor}</span>
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {selectedColor}
+                </code>
+              </div>
+
+              <div className="p-2.5 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-0.5">
+                <span className="text-[10px] uppercase font-semibold text-stone-500 block">Dịp</span>
+                <div className="font-medium text-[#241E1C] truncate">
+                  {occasionGoal}
+                </div>
+                <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
+                  {occasionGoal}
+                </code>
+              </div>
             </div>
-            <h3 className="font-serif text-lg font-semibold text-[#241E1C] mt-0.5">
-              Các Lớp Đang Phối
-            </h3>
           </div>
-
-          <div className="flex items-center gap-2">
-            {currentRule.culturalNotes.academicStatus === 'verified_convention' ? (
-              <span className="px-2.5 py-1 rounded text-[11px] font-medium bg-[#1B4D3E]/10 text-[#1B4D3E] border border-[#1B4D3E]/20 flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Quy chuẩn có tham chiếu tư liệu</span>
-              </span>
-            ) : (
-              <span className="px-2.5 py-1 rounded text-[11px] font-medium bg-[#9E6E20]/10 text-[#9E6E20] border border-[#9E6E20]/20 flex items-center gap-1.5">
-                <Compass className="w-3.5 h-3.5" />
-                <span>Gợi ý thử nghiệm - Cần xác minh thêm</span>
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Technical Specification Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Áo chính</span>
-            <div className="font-medium text-[#241E1C] truncate" title={currentGarment.name}>
-              {currentGarment.name}
-            </div>
-            <code className="text-[10px] font-mono text-[#8B2626] bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {selectedGarmentId}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Lớp lót</span>
-            <div className="font-medium text-[#241E1C] truncate" title={currentInnerMeta?.name}>
-              {currentInnerMeta?.name}
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {innerLayer}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Hạ y (quần/váy)</span>
-            <div className="font-medium text-[#241E1C] truncate" title={currentBottomMeta?.name}>
-              {currentBottomMeta?.name}
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {bottomLayer}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Khăn đội đầu</span>
-            <div className="font-medium text-[#241E1C] truncate" title={currentHeadMeta?.name}>
-              {currentHeadMeta?.name}
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {accessoryHead}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Cầm tay</span>
-            <div className="font-medium text-[#241E1C] truncate" title={currentHandMeta?.name}>
-              {currentHandMeta?.name}
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {accessoryHand}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Sắc độ tà áo</span>
-            <div className="font-medium text-[#241E1C] flex items-center gap-1.5 truncate">
-              <span
-                className="w-2.5 h-2.5 rounded-full border border-black/15 shrink-0 inline-block"
-                style={{ backgroundColor: selectedColor }}
-              />
-              <span className="truncate">{currentColorMeta?.name || selectedColor}</span>
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {selectedColor}
-            </code>
-          </div>
-
-          <div className="p-3 bg-[#FAF7F2] rounded-xs border border-[#241E1C]/5 space-y-1">
-            <span className="text-[10px] uppercase font-semibold text-stone-500 block">Dịp mục tiêu</span>
-            <div className="font-medium text-[#241E1C] truncate">
-              {occasionGoal === 'ky_yeu' ? 'Kỷ yếu' :
-               occasionGoal === 'le_tet' ? 'Lễ Tết' :
-               occasionGoal === 'thuyet_trinh' ? 'Thuyết trình' :
-               occasionGoal === 'dao_pho' ? 'Dạo phố' : 'Cưới hỏi'}
-            </div>
-            <code className="text-[10px] font-mono text-stone-700 bg-white px-1 py-0.5 rounded border border-[#241E1C]/10 block truncate">
-              {occasionGoal}
-            </code>
-          </div>
-        </div>
-
-        {/* Cultural Caution note */}
-        <div className="p-3 bg-[#FAF7F2] rounded-xs text-[11px] text-[#241E1C]/75 border-l-2 border-[#8B2626] flex items-start gap-2">
-          <Info className="w-3.5 h-3.5 text-[#8B2626] shrink-0 mt-0.5" />
-          <div>
-            <strong>Ghi chú học thuật & tính xác thực:</strong> {currentRule.culturalNotes.summary} Các quy tắc ở đây là gợi ý thiết kế phục vụ học sinh sinh viên tìm hiểu trang phục, không tùy tiện khẳng định các quy định lịch sử khi chưa có nguồn thư tịch đối chiếu chính thức.
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

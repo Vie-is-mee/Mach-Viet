@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradients (Warm Northern Rural Heritage Palette) -->
+    <linearGradient id="tuThanBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#261A16" />
+      <stop offset="50%" stop-color="#1B1412" />
+      <stop offset="100%" stop-color="#100C0A" />
+    </linearGradient>
+    <radialGradient id="folkLight" cx="50%" cy="45%" r="65%">
+      <stop offset="0%" stop-color="#FCEFD8" stop-opacity="0.18" />
+      <stop offset="55%" stop-color="#C2593F" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Outer Robe 4 Panels (Earthy Terracotta & Warm Ochre Silk) -->
+    <linearGradient id="robeTerracotta" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8F382A" />
+      <stop offset="40%" stop-color="#732B20" />
+      <stop offset="80%" stop-color="#541B12" />
+      <stop offset="100%" stop-color="#38100A" />
+    </linearGradient>
+
+    <!-- Moss Green & Brown Outer Panel Layer (Áo the / lụa nâu non lót ngoài) -->
+    <linearGradient id="robeMoss" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4A5839" />
+      <stop offset="50%" stop-color="#344026" />
+      <stop offset="100%" stop-color="#1F2815" />
+    </linearGradient>
+
+    <!-- Halter Top Yếm Đào (Lotus Blossom Pink Silk) -->
+    <linearGradient id="yemDaoPink" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F29DA6" />
+      <stop offset="40%" stop-color="#E27481" />
+      <stop offset="85%" stop-color="#BF4352" />
+      <stop offset="100%" stop-color="#912835" />
+    </linearGradient>
+
+    <!-- Silk Sash Ruột Tượng / Thắt lưng lụa (Vibrant Leaf Green Silk) -->
+    <linearGradient id="silkSashGreen" x1="0%" y1="0%" x2="100%" y2="90%">
+      <stop offset="0%" stop-color="#48C78E" />
+      <stop offset="35%" stop-color="#2BA26C" />
+      <stop offset="80%" stop-color="#197349" />
+      <stop offset="100%" stop-color="#0D472C" />
+    </linearGradient>
+
+    <!-- Dark Silk Skirt (Váy lụa đen Bắc Bộ) -->
+    <linearGradient id="skirtBlack" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2B2829" />
+      <stop offset="50%" stop-color="#1C1A1B" />
+      <stop offset="100%" stop-color="#121011" />
+    </linearGradient>
+
+    <!-- Nón Ba Tầm / Nón Quai Thao Straw Gradient -->
+    <linearGradient id="strawHat" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EFE6CE" />
+      <stop offset="50%" stop-color="#D8C9A3" />
+      <stop offset="100%" stop-color="#A8966E" />
+    </linearGradient>
+
+    <!-- Soft Drop Shadow -->
+    <filter id="shadowTuThan" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="15" flood-color="#000000" flood-opacity="0.55" />
+    </filter>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect width="800" height="450" fill="url(#tuThanBg)" />
+  <circle cx="400" cy="225" r="320" fill="url(#folkLight)" />
+
+  <!-- Stylized Bamboo Leaves / Northern Village Silhouette in Background -->
+  <g opacity="0.05" fill="#D4A054">
+    <!-- Bamboo Stalks Left -->
+    <rect x="70" y="40" width="4" height="370" rx="2" />
+    <rect x="95" y="60" width="3" height="350" rx="1.5" />
+    <path d="M74,90 C110,80 135,100 150,115 C130,110 100,105 74,95 Z" />
+    <path d="M74,160 C120,150 145,170 165,190 C140,185 105,180 74,168 Z" />
+    <!-- Bamboo Stalks Right -->
+    <rect x="710" y="50" width="4" height="360" rx="2" />
+    <path d="M710,110 C670,100 645,120 630,135 C650,130 680,125 710,115 Z" />
+  </g>
+
+  <!-- Outer Traditional Wooden Lattice Frame -->
+  <rect x="24" y="24" width="752" height="402" rx="4" fill="none" stroke="#D4A054" stroke-opacity="0.2" stroke-width="1" />
+  <rect x="30" y="30" width="740" height="390" rx="2" fill="none" stroke="#FAF7F2" stroke-opacity="0.06" stroke-width="0.75" />
+  <!-- Corner Stylized Cloud/Lotus Motifs -->
+  <circle cx="44" cy="44" r="5" fill="none" stroke="#D4A054" stroke-opacity="0.4" stroke-width="1.2" />
+  <circle cx="756" cy="44" r="5" fill="none" stroke="#D4A054" stroke-opacity="0.4" stroke-width="1.2" />
+  <circle cx="44" cy="406" r="5" fill="none" stroke="#D4A054" stroke-opacity="0.4" stroke-width="1.2" />
+  <circle cx="756" cy="406" r="5" fill="none" stroke="#D4A054" stroke-opacity="0.4" stroke-width="1.2" />
+
+  <!-- MANNEQUIN / SILHOUETTE OF ÁO TỨ THÂN (FOUR-PANEL DRESS) -->
+  <g filter="url(#shadowTuThan)">
+    <!-- 1. VÁY LỤA ĐEN BẮC BỘ (DARK SILK SKIRT) -->
+    <path d="M350,250 L310,425 C350,432 450,432 490,425 L450,250 Z" fill="url(#skirtBlack)" />
+    <!-- Skirt vertical ripples/pleats (Nếp rủ mềm mại) -->
+    <path d="M360,260 C350,330 335,390 330,425" stroke="#3A3638" stroke-width="2.5" opacity="0.6" />
+    <path d="M400,260 C400,330 400,390 400,428" stroke="#3A3638" stroke-width="3" opacity="0.7" />
+    <path d="M440,260 C450,330 465,390 470,425" stroke="#3A3638" stroke-width="2.5" opacity="0.6" />
+
+    <!-- 2. HAI VẠT SAU KHÂU LIỀN (BACK TWO PANELS OF ÁO TỨ THÂN) -->
+    <path d="M335,170 L300,380 C325,395 350,400 375,402 L360,250 Z" fill="url(#robeMoss)" />
+    <path d="M465,170 L500,380 C475,395 450,400 425,402 L440,250 Z" fill="url(#robeMoss)" />
+
+    <!-- 3. ÁO YẾM ĐÀO (LOTUS PINK HALTER TOP BODICE) -->
+    <!-- Diamond-shaped silk bodice visible at chest and throat -->
+    <path d="M375,108 C388,102 412,102 425,108 L438,185 C420,195 380,195 362,185 Z" fill="url(#yemDaoPink)" />
+    <!-- Yếm Halter Ribbon Neck Straps (Dây yếm buộc sau gáy) -->
+    <path d="M378,107 C386,95 392,90 395,84" fill="none" stroke="#BF4352" stroke-width="2.5" />
+    <path d="M422,107 C414,95 408,90 405,84" fill="none" stroke="#BF4352" stroke-width="2.5" />
+    <!-- Delicate embroidered lotus leaf lines on the Yếm -->
+    <path d="M400,125 C390,145 385,165 375,178" fill="none" stroke="#FFAFB8" stroke-width="1.2" opacity="0.5" />
+    <path d="M400,125 C410,145 415,165 425,178" fill="none" stroke="#FFAFB8" stroke-width="1.2" opacity="0.5" />
+    <path d="M400,130 C400,155 400,175 400,186" fill="none" stroke="#FFAFB8" stroke-width="1.2" opacity="0.5" />
+
+    <!-- 4. HAI VẠT TRƯỚC CỦA ÁO TỨ THÂN (FRONT TWO FLOWING PANELS - TERRACOTTA SILK) -->
+    <!-- Left Front Panel (Vạt trước bên trái xẻ dọc từ cổ buông thả) -->
+    <path d="M365,115 C345,130 330,170 322,230 C318,270 315,330 325,385 C338,390 355,380 358,350 L368,230 Z" fill="url(#robeTerracotta)" />
+    <!-- Right Front Panel (Vạt trước bên phải) -->
+    <path d="M435,115 C455,130 470,170 478,230 C482,270 485,330 475,385 C462,390 445,380 442,350 L432,230 Z" fill="url(#robeTerracotta)" />
+
+    <!-- SLEEVES (TAY ÁO TỨ THÂN THẢ TỰ NHIÊN, KHÔNG QUÁ RỘNG NHƯ ÁO TẤC) -->
+    <!-- Left Sleeve -->
+    <path d="M340,115 C305,130 270,170 250,225 C245,240 255,275 272,280 C290,282 320,240 332,210 Z" fill="url(#robeTerracotta)" />
+    <path d="M250,225 C255,255 270,278 285,278" fill="none" stroke="#A84535" stroke-width="2" />
+    <!-- Right Sleeve -->
+    <path d="M460,115 C495,130 530,170 550,225 C555,240 545,275 528,280 C510,282 480,240 468,210 Z" fill="url(#robeTerracotta)" />
+    <path d="M550,225 C545,255 530,278 515,278" fill="none" stroke="#A84535" stroke-width="2" />
+
+    <!-- 5. WAIST SILK SASH (RUỘT TƯỢNG / THẮT LƯNG LỤA XANH LÁ CHUỐI) -->
+    <!-- Horizontal wide silk band across slender waist -->
+    <path d="M352,215 C375,225 425,225 448,215 L452,242 C425,252 375,252 348,242 Z" fill="url(#silkSashGreen)" />
+    <!-- Tied knot and two dangling sash ribbons in front (Hai giải lụa rủ trước bụng) -->
+    <!-- Sash Knot -->
+    <ellipse cx="400" cy="235" rx="14" ry="10" fill="#2BA26C" stroke="#135938" stroke-width="1.5" />
+    <!-- Left ribbon tail floating -->
+    <path d="M394,242 C385,270 375,310 382,355 C388,360 398,355 395,335 C390,305 398,270 402,244 Z" fill="url(#silkSashGreen)" />
+    <!-- Right ribbon tail floating -->
+    <path d="M404,242 C412,270 422,310 415,355 C408,360 398,355 402,335 C408,305 402,270 398,244 Z" fill="url(#silkSashGreen)" />
+
+    <!-- Front panel ties (Hai vạt áo trước buộc túm chéo nhau dưới bụng) -->
+    <path d="M370,235 C390,248 400,260 400,260 C400,260 410,248 430,235" fill="none" stroke="#541B12" stroke-width="4" />
+    <path d="M370,235 C390,248 400,260 400,260 C400,260 410,248 430,235" fill="none" stroke="#D4A054" stroke-width="1" stroke-dasharray="3 2" />
+
+    <!-- 6. HEAD ACCESSORY: KHĂN MỎ QUẠ (BLACK RAVEN'S BEAK KERCHIEF) -->
+    <!-- Black silk triangle folded down to a sharp beak at the forehead center -->
+    <path d="M370,80 C378,60 422,60 430,80 C430,95 410,105 400,108 C390,105 370,95 370,80 Z" fill="#1C1819" stroke="#0E0C0C" stroke-width="1.2" />
+    <!-- Raven beak point highlight (Chóp mỏ quạ nhọn ngay giữa trán) -->
+    <path d="M380,82 L400,103 L420,82" fill="none" stroke="#3A3335" stroke-width="1.5" />
+    <!-- Subtle hair under kerchief -->
+    <ellipse cx="400" cy="72" rx="22" ry="10" fill="#0A0809" />
+
+    <!-- 7. ICONIC NÓN QUAI THAO / NÓN BA TẦM (TRADITIONAL LARGE FLAT STRAW HAT) -->
+    <!-- Resting elegantly behind or beside the shoulder -->
+    <g transform="translate(560, 110) rotate(15)">
+      <!-- Large Circular Flat Brim -->
+      <ellipse cx="60" cy="80" rx="80" ry="40" fill="url(#strawHat)" stroke="#8A7550" stroke-width="2" />
+      <!-- Subtle concentric woven rings of bamboo and palm leaves -->
+      <ellipse cx="60" cy="80" rx="65" ry="32" fill="none" stroke="#B8A47A" stroke-width="1.2" />
+      <ellipse cx="60" cy="80" rx="48" ry="24" fill="none" stroke="#9E8A63" stroke-width="1" stroke-dasharray="4 3" />
+      <ellipse cx="60" cy="80" rx="28" ry="14" fill="#C9B88E" stroke="#7A6844" stroke-width="1.2" />
+      <!-- Silk Quai Thao Ribbon Tassels (Dây quai thao dệt tơ tằm buông dài) -->
+      <path d="M40,95 C45,150 40,210 35,270" fill="none" stroke="#8B2626" stroke-width="3" opacity="0.85" />
+      <path d="M80,95 C85,150 90,210 95,270" fill="none" stroke="#8B2626" stroke-width="3" opacity="0.85" />
+      <!-- Tassel Ends (Tua rua chỉ ngũ sắc) -->
+      <line x1="33" y1="270" x2="33" y2="290" stroke="#D4A054" stroke-width="3" />
+      <line x1="97" y1="270" x2="97" y2="290" stroke="#D4A054" stroke-width="3" />
+    </g>
+  </g>
+
+  <!-- Editorial Info Banner at Bottom Left -->
+  <g transform="translate(48, 360)">
+    <!-- Cultural Era Tag -->
+    <rect x="0" y="0" width="144" height="20" rx="2" fill="#8B2626" opacity="0.9" />
+    <text x="8" y="14" font-family="'Be Vietnam Pro', sans-serif" font-size="9" font-weight="700" fill="#FAF7F2" letter-spacing="1">DÂN GIAN BẮC BỘ · THẾ KỶ 18-19</text>
+
+    <!-- Main Title -->
+    <text x="0" y="42" font-family="'Playfair Display', serif" font-size="22" font-weight="700" fill="#FAF7F2" letter-spacing="0.5">Áo Tứ Thân &amp; Áo Yếm Đào</text>
+    <text x="0" y="58" font-family="'Be Vietnam Pro', sans-serif" font-size="11" font-weight="400" fill="#D4A054" opacity="0.95">Bốn vạt thắt eo duyên dáng · Yếm đào lụa &amp; Nón quai thao</text>
+  </g>
+
+  <!-- Authenticity Cultural Badge at Top Right -->
+  <g transform="translate(640, 48)">
+    <rect x="0" y="0" width="112" height="48" rx="2" fill="#000000" fill-opacity="0.5" stroke="#D4A054" stroke-width="0.75" />
+    <text x="56" y="18" text-anchor="middle" font-family="'Be Vietnam Pro', sans-serif" font-size="8" font-weight="700" fill="#D4A054" letter-spacing="1.5">MẠCH VIỆT</text>
+    <text x="56" y="32" text-anchor="middle" font-family="'Playfair Display', serif" font-size="11" font-weight="600" fill="#FAF7F2">Dân Gian Bắc Bộ</text>
+    <line x1="16" y1="38" x2="96" y2="38" stroke="#D4A054" stroke-width="0.5" opacity="0.5" />
+  </g>
+</svg>

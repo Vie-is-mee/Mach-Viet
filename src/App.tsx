@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { NavigationTab, PreferenceProfile, normalizeGarmentChoice } from './types';
+import { NavigationTab, PreferenceProfile, SavedOutfitItem, normalizeGarmentChoice } from './types';
 import { Navbar } from './components/Navbar';
 import { HeroHome } from './components/HeroHome';
 import { CostumeExplorer } from './components/CostumeExplorer';
@@ -17,8 +17,22 @@ import { Footer } from './components/Footer';
 export default function App() {
   const [activeTab, setActiveTab] = useState<NavigationTab>('home');
   const [selectedGarmentId, setSelectedGarmentId] = useState<string | null>(null);
-  const [userSavedOutfits, setUserSavedOutfits] = useState<string[]>([]);
+  const [editingOutfit, setEditingOutfit] = useState<SavedOutfitItem | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
+
+  // Durable saved outfits with safe localStorage retrieval
+  const [userSavedOutfits, setUserSavedOutfits] = useState<SavedOutfitItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('mach_viet_saved_outfits');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed as SavedOutfitItem[];
+      }
+    } catch (e) {
+      console.error('Không thể đọc danh sách bản phối từ localStorage:', e);
+    }
+    return [];
+  });
 
   // Preference Profile with safe localStorage retrieval and normalizer
   const [preferenceProfile, setPreferenceProfile] = useState<PreferenceProfile | null>(() => {
@@ -39,7 +53,6 @@ export default function App() {
     return null;
   });
 
-
   const handleNavigate = (tab: NavigationTab) => {
     setActiveTab(tab);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -53,8 +66,56 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleSaveOutfit = (outfitTitle: string) => {
-    setUserSavedOutfits((prev) => [outfitTitle, ...prev]);
+  const handleSaveOutfit = (outfit: SavedOutfitItem | string) => {
+    const itemToSave: SavedOutfitItem = typeof outfit === 'string' ? {
+      id: `outfit-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      title: outfit,
+      savedAt: new Date().toLocaleDateString('vi-VN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      garmentId: selectedGarmentId || 'ao-tu-than',
+      selectedColor: '#8B2626',
+      innerLayer: 'yem-dao',
+      bottomLayer: 'vay-xep-ly',
+      accessoryHead: 'non-la',
+      accessoryHand: 'quat-nan',
+      occasionGoal: 'dao_pho',
+    } : outfit;
+
+    setUserSavedOutfits((prev) => {
+      // Replace existing item if editing, or prepend new
+      const filtered = prev.filter((o) => o.id !== itemToSave.id);
+      const updated = [itemToSave, ...filtered];
+      try {
+        localStorage.setItem('mach_viet_saved_outfits', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Không thể lưu bản phối vào localStorage:', e);
+      }
+      return updated;
+    });
+  };
+
+  const handleEditOutfit = (outfit: SavedOutfitItem) => {
+    setEditingOutfit(outfit);
+    setSelectedGarmentId(outfit.garmentId);
+    setActiveTab('studio');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDeleteSavedOutfit = (id: string) => {
+    setUserSavedOutfits((prev) => {
+      const updated = prev.filter((o) => o.id !== id);
+      try {
+        localStorage.setItem('mach_viet_saved_outfits', JSON.stringify(updated));
+      } catch (e) {
+        console.error('Không thể lưu danh sách bản phối sau khi xóa:', e);
+      }
+      return updated;
+    });
   };
 
   const handleSavePreferenceProfile = (newProfile: PreferenceProfile) => {
@@ -112,6 +173,7 @@ export default function App() {
             preferenceProfile={preferenceProfile}
             onOpenPreferenceWizard={() => setIsWizardOpen(true)}
             onClearPreferenceProfile={handleClearPreferenceProfile}
+            editingOutfit={editingOutfit}
           />
         )}
 
@@ -119,9 +181,12 @@ export default function App() {
           <LookbookSection
             userSavedOutfits={userSavedOutfits}
             onNavigateToStudio={() => {
+              setEditingOutfit(null);
               setActiveTab('studio');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
+            onEditOutfit={handleEditOutfit}
+            onDeleteOutfit={handleDeleteSavedOutfit}
           />
         )}
 

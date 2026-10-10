@@ -1,0 +1,95 @@
+{
+  "purpose": "Static GLB assets for Mạch Việt Vite/Three.js, not uploaded by end users",
+  "models": [
+    {
+      "id": "ao-dai-blue",
+      "filename": "ao-dai-blue.glb",
+      "path": "/models/ao-dai-blue.glb",
+      "kind": "garment",
+      "display_name": "Áo dài · xanh",
+      "sha256": "5c5fa72f95276a2def93d76b321f653cdd1beef707567f19c44e5feac195b2d1",
+      "attribution": {
+        "author": "ghostnoface (https://sketchfab.com/ghostnoface)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/marvelous-to-substance-test-2-aodai-88015bd2f553451b8a6e4fb694b1ee14",
+        "title": "Marvelous to substance test 2 Aodai"
+      },
+      "illustrative_only": true
+    },
+    {
+      "id": "tu-than-color",
+      "filename": "tu-than-color.glb",
+      "path": "/models/tu-than-color.glb",
+      "kind": "garment",
+      "display_name": "Tứ thân · đa sắc",
+      "sha256": "a1dfdd728f1564be8c3b0d3778f669eae91f03cdcca72855ea07be0360de26b9",
+      "attribution": {
+        "author": "ghostnoface (https://sketchfab.com/ghostnoface)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/marvelous-to-substance-test-6-ao-tu-than-3-88f76e45667e407580977304ba9cfb05",
+        "title": "Marvelous to substance test 6_ao tu than 3"
+      },
+      "illustrative_only": true
+    },
+    {
+      "id": "nhat-binh",
+      "filename": "nhat-binh.glb",
+      "path": "/models/nhat-binh.glb",
+      "kind": "garment",
+      "display_name": "Nhật Bình",
+      "sha256": "69bec6cbfa838926969e044e11f2dd374495db26135e546d69211060ffd807ef",
+      "attribution": {
+        "author": "ghostnoface (https://sketchfab.com/ghostnoface)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/marvelous-to-substance-test-9-ao-nhat-binh-78d702a91dc84d66805050488d415d0e",
+        "title": "Marvelous to substance test 9_Ao Nhat Binh"
+      },
+      "illustrative_only": true
+    },
+    {
+      "id": "fan-decorated",
+      "filename": "fan-decorated.glb",
+      "path": "/models/fan-decorated.glb",
+      "kind": "accessory",
+      "display_name": "Quạt trang trí",
+      "sha256": "682163c500288e9b56e894b1953ea1b670d654236f02e32226b0666c0f0da4b5",
+      "attribution": {
+        "author": "staceyneko0415 (https://sketchfab.com/staceyneko0415)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/folding-fan-a0ece787e7fd431a9dd42b142bb87f45",
+        "title": "Folding fan"
+      },
+      "illustrative_only": true
+    },
+    {
+      "id": "hat-non-la",
+      "filename": "hat-non-la.glb",
+      "path": "/models/hat-non-la.glb",
+      "kind": "accessory",
+      "display_name": "Nón lá",
+      "sha256": "4de812539e071cc9f2993f2bb8367806b4a1a8a9b083981cb5db39a8d7862fd7",
+      "attribution": {
+        "author": "NNgan (https://sketchfab.com/NNgan)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/vietnamese---non-la-abd86436d03344b9a40c82e127fb6252",
+        "title": "Vietnamese _ Non La"
+      },
+      "illustrative_only": true
+    },
+    {
+      "id": "woven-tote",
+      "filename": "woven-tote.glb",
+      "path": "/models/woven-tote.glb",
+      "kind": "accessory",
+      "display_name": "Túi tote dệt",
+      "sha256": "97c13cce06e127ce29448dfcc84ed4778485a94e2dd447e210afbb9e8caff8e4",
+      "attribution": {
+        "author": "eeelabvisual (https://sketchfab.com/eeelabvisual)",
+        "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+        "source": "https://sketchfab.com/3d-models/woven-tote-bag-7259d1fc109b4c43a0d4bf3661433919",
+        "title": "WOVEN TOTE BAG"
+      },
+      "illustrative_only": true
+    }
+  ]
+}

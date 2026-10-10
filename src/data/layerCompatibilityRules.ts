@@ -62,6 +62,12 @@ export const ACCESSORY_HEAD_OPTIONS: LayerItemMeta<AccessoryHeadId>[] = [
     description: 'Dải vải nhung hoặc lụa vấn chặt quanh lọn tóc tạo hình vành tròn quanh đầu, mang nét duyên dáng đài các.',
   },
   {
+    id: 'non-la',
+    name: 'Nón lá truyền thống',
+    subName: 'Nón chóp đan lá nón mộc mạc',
+    description: 'Biểu tượng văn hóa mộc mạc của người Việt, che nắng mưa và tôn dáng thanh thoát khi mặc áo tứ thân hoặc áo dài.',
+  },
+  {
     id: 'none',
     name: 'Để tóc tự nhiên',
     subName: 'Không đội khăn / phong cách trẻ',
@@ -81,6 +87,12 @@ export const ACCESSORY_HAND_OPTIONS: LayerItemMeta<AccessoryHandId>[] = [
     name: 'Túi gấm truyền thống',
     subName: 'Túi thêu hoa văn cổ phong',
     description: 'Túi nhỏ dệt gấm đựng tư trang cá nhân, hài hòa với phong cách cổ phong.',
+  },
+  {
+    id: 'tui-coi',
+    name: 'Túi cói đan mộc',
+    subName: 'Túi quai xách đan cói dân tộc/dân gian',
+    description: 'Túi cói/mây tre đan tay mộc mạc với quai xách bên tay, hòa hợp với phong vị dân gian đồng quê Bắc Bộ và dạo phố.',
   },
   {
     id: 'none',
@@ -179,6 +191,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         reason: 'Khăn đóng thường dùng cho nghi lễ truyền thống hoặc áo dài nam.',
         verificationLevel: 'experimental_suggestion',
       },
+      'non-la': {
+        isCompatible: true,
+        isRecommended: true,
+        reason: 'Nón lá kết hợp cùng áo dài là hình ảnh biểu trưng kinh điển của vẻ đẹp Việt Nam thanh thoát.',
+        verificationLevel: 'verified_convention',
+      },
     },
     accessoryHands: {
       'quat-nan': {
@@ -191,6 +209,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         isCompatible: true,
         isRecommended: false,
         reason: 'Túi gấm nhỏ gọn tiện lợi dạo phố.',
+        verificationLevel: 'experimental_suggestion',
+      },
+      'tui-coi': {
+        isCompatible: true,
+        isRecommended: true,
+        reason: 'Túi cói mộc mạc là phụ kiện dạo phố/chụp ảnh kỷ yếu rất được yêu thích với áo dài.',
         verificationLevel: 'experimental_suggestion',
       },
       'none': {
@@ -269,6 +293,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         reason: 'Khăn đóng xếp nếp nẹp cứng thời Nguyễn không tương thích với bối cảnh áo tứ thân dân gian châu thổ Bắc Bộ.',
         verificationLevel: 'not_recommended',
       },
+      'non-la': {
+        isCompatible: true,
+        isRecommended: true,
+        reason: 'Nón lá cùng áo tứ thân là biểu tượng dân gian đặc trưng, che mát và tôn dáng mộc mạc.',
+        verificationLevel: 'verified_convention',
+      },
     },
     accessoryHands: {
       'quat-nan': {
@@ -282,6 +312,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         isRecommended: false,
         reason: 'Túi gấm nhỏ làm điểm nhấn phụ kiện đương đại.',
         verificationLevel: 'experimental_suggestion',
+      },
+      'tui-coi': {
+        isCompatible: true,
+        isRecommended: true,
+        reason: 'Túi cói đan mộc kết hợp hoàn hảo cùng chất mộc mạc của áo tứ thân Bắc Bộ.',
+        verificationLevel: 'verified_convention',
       },
       'none': {
         isCompatible: true,
@@ -359,6 +395,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         reason: 'Để tóc tự nhiên - biến tấu gọn gàng hiện đại cho học sinh, sinh viên.',
         verificationLevel: 'experimental_suggestion',
       },
+      'non-la': {
+        isCompatible: true,
+        isRecommended: false,
+        reason: 'Nón lá có thể dùng khi che nắng dạo phố cùng áo ngũ thân cách tân, nhưng không thuộc quy thức lễ nghi truyền thống.',
+        verificationLevel: 'experimental_suggestion',
+      },
     },
     accessoryHands: {
       'quat-nan': {
@@ -371,6 +413,12 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         isCompatible: true,
         isRecommended: false,
         reason: 'Túi gấm nhỏ làm phụ kiện chứa đồ cá nhân.',
+        verificationLevel: 'experimental_suggestion',
+      },
+      'tui-coi': {
+        isCompatible: true,
+        isRecommended: false,
+        reason: 'Gợi ý dạo phố phong cách trẻ trung năng động; lễ tục truyền thống thường chuộng túi gấm.',
         verificationLevel: 'experimental_suggestion',
       },
       'none': {
@@ -449,6 +497,11 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         reason: 'Gợi ý thử nghiệm hiện đại: Để tóc tự nhiên trong không gian sự kiện sinh viên.',
         verificationLevel: 'experimental_suggestion',
       },
+      'non-la': {
+        isCompatible: false,
+        reason: 'Áo tấc là lễ phục đại lễ trang nghiêm thời Nguyễn; quy thức bắt buộc dùng khăn đóng hoặc khăn vấn, không đội nón lá dân gian.',
+        verificationLevel: 'not_recommended',
+      },
     },
     accessoryHands: {
       'none': {
@@ -468,6 +521,11 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         isRecommended: false,
         reason: 'Túi gấm đeo nhẹ nhàng không làm gãy nếp tay thụng.',
         verificationLevel: 'experimental_suggestion',
+      },
+      'tui-coi': {
+        isCompatible: false,
+        reason: 'Túi cói đan mộc dân dã không tương thích với lễ phục trang nghiêm quy chuẩn triều đình của áo tấc.',
+        verificationLevel: 'not_recommended',
       },
     },
     culturalNotes: {
@@ -539,6 +597,11 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         reason: 'Để tóc tự nhiên - gợi ý thử nghiệm cho người trẻ dạo phố cổ phong.',
         verificationLevel: 'experimental_suggestion',
       },
+      'non-la': {
+        isCompatible: false,
+        reason: 'Áo Nhật Bình là thường phục hoàng tộc/mệnh phụ triều Nguyễn, không có thông lệ hay tư liệu văn hóa kết hợp cùng nón lá dân dã.',
+        verificationLevel: 'not_recommended',
+      },
     },
     accessoryHands: {
       'quat-nan': {
@@ -552,6 +615,11 @@ export const GARMENT_COMPATIBILITY_RULES: Record<string, GarmentCompatibilityPro
         isRecommended: false,
         reason: 'Túi gấm thêu hoa văn truyền thống.',
         verificationLevel: 'experimental_suggestion',
+      },
+      'tui-coi': {
+        isCompatible: false,
+        reason: 'Túi cói mộc mạc dân gian không phù hợp với quy chuẩn quý phái cung đình của áo Nhật Bình.',
+        verificationLevel: 'not_recommended',
       },
       'none': {
         isCompatible: true,

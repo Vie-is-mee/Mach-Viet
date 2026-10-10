@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PreferenceProfile, PreferredGarmentChoice, StyleOrientation, normalizeGarmentChoice } from '../types';
 import { STUDIO_COLOR_PRESETS, ACCESSORY_OPTIONS, CULTURAL_BOUNDARY_PRESETS, SHARED_GARMENT_CATEGORIES } from '../data/mockData';
 import { X, ArrowLeft, ArrowRight, Check, AlertCircle, Sparkles, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react';
@@ -16,6 +16,15 @@ export const PreferenceWizardModal: React.FC<PreferenceWizardModalProps> = ({
   initialProfile,
   onSaveProfile,
 }) => {
+  // Support Escape key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
   // Steps: 1 to 5, step 6 is Review & Confirm
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -208,7 +217,12 @@ export const PreferenceWizardModal: React.FC<PreferenceWizardModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#241E1C]/65 backdrop-blur-xs animate-in fade-in duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="wizard-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-[#241E1C]/65 backdrop-blur-xs animate-in fade-in duration-200"
+    >
       <div className="bg-[#FAF7F2] border border-[#241E1C]/15 rounded-sm max-w-2xl w-full max-h-[92vh] flex flex-col justify-between shadow-2xl overflow-hidden">
         
         {/* Modal Top: Progress & Advisory Header */}
@@ -218,7 +232,7 @@ export const PreferenceWizardModal: React.FC<PreferenceWizardModalProps> = ({
               <span className="w-6 h-6 rounded-xs bg-[#8B2626] text-[#FAF7F2] flex items-center justify-center font-serif text-xs font-bold">
                 {currentStep <= 5 ? currentStep : '✓'}
               </span>
-              <div className="text-xs uppercase tracking-widest text-[#8B2626] font-semibold">
+              <div id="wizard-modal-title" className="text-xs uppercase tracking-widest text-[#8B2626] font-semibold">
                 {currentStep <= 5 ? `Bước ${currentStep}/5: Tư vấn sở thích` : 'Tổng hợp & Xác nhận hồ sơ'}
               </div>
             </div>

@@ -4,6 +4,8 @@ export const HERO_ASSETS = {
   heroBanner: '/src/assets/images/mach_viet_hero_1791549541458.jpg',
   aoNguThan: '/src/assets/images/ao_ngu_than_exhibit_1791549551532.jpg',
   aoNhatBinh: '/src/assets/images/ao_nhat_binh_exhibit_1791549562498.jpg',
+  aoTac: '/src/assets/images/ao_tac_exhibit.jpg',
+  aoTuThan: '/src/assets/images/ao_tu_than_exhibit.svg',
 };
 
 export const STUDIO_COLOR_PRESETS: ColorPresetItem[] = [
@@ -217,7 +219,8 @@ export const GARMENTS_DATA: GarmentItem[] = [
     subName: 'Lễ phục cổ truyền trang trọng thời Nguyễn',
     category: 'ao_ngu_than',
     originEra: 'Triều Nguyễn (Thế kỷ 19 - đầu thế kỷ 20)',
-    imageNote: 'Bản vẽ mô phỏng dáng tay thụng (chưa qua kiểm định hiện vật bảo tàng)',
+    image: HERO_ASSETS.aoTac,
+    imageNote: 'Ảnh tư liệu thiếu nữ diện trang phục Áo Tấc đỏ truyền thống trang nhã',
     shortDescription: 'Lễ phục trang trọng có cấu trúc năm thân tương tự tay chẽn nhưng ống tay may thụng to bản buông rủ dài, thường mặc trong các dịp đại lễ.',
     keyIdentificationFeatures: [
       'Cấu trúc 5 thân vải tương tự áo ngũ thân chẽn',
@@ -337,7 +340,8 @@ export const GARMENTS_DATA: GarmentItem[] = [
     subName: 'Nét duyên mộc mạc châu thổ Bắc Bộ',
     category: 'ao_tu_than',
     originEra: 'Dân gian thế kỷ 18–19 (Vùng đồng bằng Bắc Bộ)',
-    imageNote: 'Phác thảo thị giác trang phục dân gian (chưa có tài liệu thẩm định bảo tàng số hóa công khai)',
+    image: HERO_ASSETS.aoTuThan,
+    imageNote: 'Minh họa phác thảo trang phục dân gian tứ thân Bắc Bộ',
     shortDescription: 'Trang phục bốn vạt áo dài gắn liền với phụ nữ lao động Bắc Bộ, phối nhiều tầng lớp cùng áo yếm, thắt lưng lụa và nón quai thao.',
     keyIdentificationFeatures: [
       'Gồm bốn vạt áo dài: 2 vạt sau khâu liền thành sống lưng, 2 vạt trước buông tự do hoặc thắt vạt chéo ở eo',

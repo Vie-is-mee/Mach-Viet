@@ -10,8 +10,8 @@ export type GarmentCategory =
 
 export type InnerLayerId = 'ao-lot-trang' | 'yem-dao';
 export type BottomLayerId = 'quan-lua-trang' | 'quan-den' | 'vay-xep-ly';
-export type AccessoryHeadId = 'khan-dong' | 'khan-van' | 'none';
-export type AccessoryHandId = 'quat-nan' | 'tui-gam' | 'none';
+export type AccessoryHeadId = 'khan-dong' | 'khan-van' | 'non-la' | 'none';
+export type AccessoryHandId = 'quat-nan' | 'tui-gam' | 'tui-coi' | 'none';
 
 export interface LayerItemMeta<T extends string = string> {
   id: T;
@@ -28,6 +28,30 @@ export interface StudioOutfitState {
   accessoryHead: AccessoryHeadId;
   accessoryHand: AccessoryHandId;
   occasionGoal: string;
+  propsVisible?: {
+    fan?: boolean;
+    hat?: boolean;
+    bag?: boolean;
+  };
+}
+
+export interface SavedOutfitItem {
+  id: string;
+  title: string;
+  savedAt: string;
+  garmentId: string;
+  selectedColor: string;
+  innerLayer: InnerLayerId;
+  bottomLayer: BottomLayerId;
+  accessoryHead: AccessoryHeadId;
+  accessoryHand: AccessoryHandId;
+  occasionGoal: string;
+  propsVisible?: {
+    fan?: boolean;
+    hat?: boolean;
+    bag?: boolean;
+  };
+  notes?: string;
 }
 
 export interface LayerCompatibilityEntry {
